@@ -18,7 +18,7 @@ networks:
     clmm:
       # Format: base-quote: pool_address
       WETH-USDC: '0xd0b53d9277642d899df5c87a3966a349a798f224'
-      
+      ALI-WETH: '0x4b9bce8888bee8b252a7d599aa534c2fab9a07a5'
   # Ethereum Mainnet pools
   mainnet:
     # AMM (Uniswap V2) pools for Mainnet

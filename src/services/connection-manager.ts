@@ -81,6 +81,9 @@ export async function getConnector(
   } else if (connector === 'meteora') {
     const { Meteora } = await import('../connectors/meteora/meteora');
     return await Meteora.getInstance(network);
+  } else if (connector === 'quickswap') {
+    const { QuickSwap } = await import('../connectors/quickswap/quickswap');
+    return await QuickSwap.getInstance(network);
   } else {
     throw new Error('unsupported chain or connector');
   }

@@ -1,0 +1,15 @@
+{
+    "network": "polygon",
+    "timestamp": 1642680000000,
+    "latency": 120,
+    "base": "ALI",
+    "quote": "WMATIC",
+    "amount": "1000.0",
+    "expectedAmount": "125.75",
+    "price": "0.12575",
+    "gasPrice": 28.2,
+    "gasPriceToken": "MATIC",
+    "gasLimit": 200000,
+    "gasCost": "0.00564",
+    "poolAddress": "0x4b9bce8888bee8b252a7d599aa534c2fab9a07a5"
+}

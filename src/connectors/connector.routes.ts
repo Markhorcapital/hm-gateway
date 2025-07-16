@@ -5,6 +5,7 @@ import { logger } from '../services/logger';
 
 import { JupiterConfig } from './jupiter/jupiter.config';
 import { MeteoraConfig } from './meteora/meteora.config';
+import { QuickSwapConfig } from './quickswap/quickswap.config';
 import { RaydiumConfig } from './raydium/raydium.config';
 import { UniswapConfig } from './uniswap/uniswap.config';
 
@@ -82,6 +83,18 @@ export const connectorsRoutes: FastifyPluginAsync = async (fastify) => {
           trading_types: ['clmm', 'swap'],
           chain: UniswapConfig.chain,
           networks: UniswapConfig.networks,
+        },
+        {
+          name: 'quickswap/amm',
+          trading_types: ['amm', 'swap'],
+          chain: QuickSwapConfig.chain,
+          networks: QuickSwapConfig.networks,
+        },
+        {
+          name: 'quickswap/clmm',
+          trading_types: ['clmm', 'swap'],
+          chain: QuickSwapConfig.chain,
+          networks: QuickSwapConfig.networks,
         },
       ];
 

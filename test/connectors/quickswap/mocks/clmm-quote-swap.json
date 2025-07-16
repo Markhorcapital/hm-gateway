@@ -1,0 +1,14 @@
+{
+    "base": "ALI",
+    "quote": "WMATIC",
+    "amount": "1000",
+    "side": "SELL",
+    "network": "polygon",
+    "expectedAmount": "2.45",
+    "price": "0.00245",
+    "poolAddress": "0x4b9bce8888bee8b252a7d599aa534c2fab9a07a5",
+    "fee": 3000,
+    "gasPrice": "30000000000",
+    "gasLimit": 200000,
+    "gasCost": "0.006"
+}
