@@ -18,7 +18,7 @@ networks:
     clmm:
       # Format: base-quote: pool_address
       WETH-USDC: '0xd0b53d9277642d899df5c87a3966a349a798f224'
-      ALI-WETH: '0x4b9bce8888bee8b252a7d599aa534c2fab9a07a5'
+      ALI-WETH: '0x24Bf2Ee2e09477082d1DDf2F0603baa460B3F5f3'
   # Ethereum Mainnet pools
   mainnet:
     # AMM (Uniswap V2) pools for Mainnet
@@ -28,6 +28,7 @@ networks:
       ETH-DAI: '0xa478c2975ab1ea89e8196811f51a7b7ade33eb11'
       USDC-USDT: '0x3041cbd36888becc7bbcbc0045e3b1f144466f5f'
       WBTC-ETH: '0xbb2b8038a1640196fbe3e38816f3e67cba72d940'
+      ALI-USDC: '0x5083b16da538c5022744526122243cf3bddb3bf2'
     
     # CLMM (Uniswap V3) pools for Mainnet
     clmm:
@@ -35,6 +36,7 @@ networks:
       ETH-USDT: '0x4e68ccd3e89f51c3074ca5072bbac773960dfa36'
       ETH-DAI: '0xc2e9f25be6257c210d7adf0d4cd6e3e881ba25f8'
       WBTC-ETH: '0xcbcdf9626bc03e24f779434178a73a0b4bad62ed'
+      ALI-WETH: '0xf260d15e8ebe54d210ef53f5b61cb46bd9aa29ee'
       
   # Arbitrum pools
   arbitrum:

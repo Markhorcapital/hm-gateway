@@ -1,0 +1,9 @@
+{
+    "token0": "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+    "token1": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+    "fee": "500",
+    "tickSpacing": "10",
+    "sqrtPriceX96": "79228162514264337593543950336",
+    "liquidity": "1000000000000000000000",
+    "poolAddress": "0xa374094527e1673a86de625aa59517c5de346d32"
+}

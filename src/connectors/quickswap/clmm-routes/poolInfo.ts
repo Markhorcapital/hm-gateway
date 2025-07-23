@@ -42,7 +42,7 @@ const poolInfoRoute: FastifyPluginAsync = async (fastify) => {
                         poolAddress: {
                             type: 'string',
                             description: 'Optional: Specific pool address',
-                            examples: ['0x4b9Bce8888bEE8b252a7D599AA534C2faB9a07A5']
+                            examples: ['0x...']
                         },
                         baseToken: {
                             type: 'string',
@@ -101,7 +101,7 @@ const poolInfoRoute: FastifyPluginAsync = async (fastify) => {
                     'Specific Pool': {
                         summary: 'Get information for specific pool address',
                         value: {
-                            poolAddress: '0x4b9Bce8888bEE8b252a7D599AA534C2faB9a07A5',
+                            poolAddress: '0x...',
                             network: 'polygon',
                         },
                     },
@@ -138,11 +138,41 @@ const poolInfoRoute: FastifyPluginAsync = async (fastify) => {
                     }
                 }
 
+                // If we only have pool address, we need to extract token info from the pool
+                let baseTokenSymbol = baseToken;
+                let quoteTokenSymbol = quoteToken;
+
+                if (!baseTokenSymbol || !quoteTokenSymbol) {
+                    // Extract token addresses from pool contract
+                    const poolContract = new Contract(
+                        poolAddressToUse,
+                        [
+                            'function token0() external view returns (address)',
+                            'function token1() external view returns (address)',
+                        ],
+                        quickswap.provider,
+                    );
+
+                    const token0Address = await poolContract.token0();
+                    const token1Address = await poolContract.token1();
+
+                    // Find tokens by address
+                    const token0 = quickswap.getTokenByAddress(token0Address);
+                    const token1 = quickswap.getTokenByAddress(token1Address);
+
+                    if (!token0 || !token1) {
+                        throw fastify.httpErrors.badRequest('Could not resolve tokens from pool address');
+                    }
+
+                    baseTokenSymbol = token0.symbol;
+                    quoteTokenSymbol = token1.symbol;
+                }
+
                 // Get V3 pool data using Algebra V3 interface
                 const poolInfo = await getV3PoolInfo(
                     quickswap,
-                    baseToken,
-                    quoteToken,
+                    baseTokenSymbol,
+                    quoteTokenSymbol,
                     poolAddressToUse,
                 );
 

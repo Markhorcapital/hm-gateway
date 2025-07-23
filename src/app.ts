@@ -219,7 +219,8 @@ const configureGatewayServer = () => {
     app.register(uniswapRoutes, { prefix: '/connectors/uniswap' });
 
     // QuickSwap routes
-    app.register(quickswapRoutes, { prefix: '/connectors/quickswap' });
+    app.register(quickswapRoutes.amm, { prefix: '/connectors/quickswap/amm' });
+    app.register(quickswapRoutes.clmm, { prefix: '/connectors/quickswap/clmm' });
 
     // Register chain routes
     app.register(solanaRoutes, { prefix: '/chains/solana' });

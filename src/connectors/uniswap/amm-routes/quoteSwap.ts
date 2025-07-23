@@ -49,16 +49,22 @@ async function quoteAmmSwap(
     let trade;
     if (exactIn) {
       // For SELL (exactIn), we use the input amount and EXACT_INPUT trade type
+      const inputAmountRaw = Math.floor(amount * Math.pow(10, inputToken.decimals));
+      // Convert to string without scientific notation for BigInt parsing
+      const inputAmountStr = inputAmountRaw.toLocaleString('fullwide', { useGrouping: false });
       const inputAmount = CurrencyAmount.fromRawAmount(
         inputToken,
-        Math.floor(amount * Math.pow(10, inputToken.decimals)).toString(),
+        inputAmountStr,
       );
       trade = new V2Trade(route, inputAmount, TradeType.EXACT_INPUT);
     } else {
       // For BUY (exactOut), we use the output amount and EXACT_OUTPUT trade type
+      const outputAmountRaw = Math.floor(amount * Math.pow(10, outputToken.decimals));
+      // Convert to string without scientific notation for BigInt parsing
+      const outputAmountStr = outputAmountRaw.toLocaleString('fullwide', { useGrouping: false });
       const outputAmount = CurrencyAmount.fromRawAmount(
         outputToken,
-        Math.floor(amount * Math.pow(10, outputToken.decimals)).toString(),
+        outputAmountStr,
       );
       trade = new V2Trade(route, outputAmount, TradeType.EXACT_OUTPUT);
     }

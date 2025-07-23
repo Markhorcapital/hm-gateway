@@ -579,5 +579,12 @@
     "symbol": "usde",
     "address": "8dt9fQhoRKuWCSAsYweG2UMF3rbcG9xzNCTWXXSmdmEi",
     "decimals": 9
+  },
+  {
+    "chainId": 101,
+    "name": "Artificial Liquid Intelligence",
+    "symbol": "ALI",
+    "address": "9wvorGtBJ8gyLorFTmwXWcymPoGVUBn6MRzHwFpCdCeC",
+    "decimals": 8
   }
 ]

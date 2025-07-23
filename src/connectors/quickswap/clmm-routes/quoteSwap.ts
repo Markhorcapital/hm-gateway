@@ -9,17 +9,17 @@ import { formatTokenAmount } from '../../uniswap/uniswap.utils';
 
 // Schemas
 const QuoteSwapRequestSchema = Type.Object({
-    base: Type.String({
+    baseToken: Type.String({
         description: 'Base token symbol (e.g., ALI, WPOL, USDC)',
         examples: ['ALI', 'WPOL', 'USDC'],
     }),
-    quote: Type.String({
+    quoteToken: Type.String({
         description: 'Quote token symbol (e.g., WPOL, USDC, ALI)',
         examples: ['WPOL', 'USDC', 'ALI'],
     }),
-    amount: Type.String({
+    amount: Type.Number({
         description: 'Amount to swap (in base token units for SELL, quote token units for BUY)',
-        examples: ['100', '1.5', '1000'],
+        examples: [100, 1.5, 1000],
     }),
     side: Type.Union([
         Type.Literal('BUY', { description: 'Buy base token with quote token' }),
@@ -28,74 +28,66 @@ const QuoteSwapRequestSchema = Type.Object({
         description: 'Trade direction',
         examples: ['SELL', 'BUY'],
     }),
-    network: Type.String({
+    network: Type.Optional(Type.String({
         description: 'Blockchain network (e.g., polygon, mumbai)',
         examples: ['polygon', 'mumbai'],
         default: 'polygon',
-    }),
+    })),
     poolAddress: Type.Optional(Type.String({
         description: 'Optional: Specific pool address for the token pair',
-        examples: ['0x4b9Bce8888bEE8b252a7D599AA534C2faB9a07A5'],
+        examples: ['0x...'],
+    })),
+    slippagePct: Type.Optional(Type.Number({
+        description: 'Slippage percentage (e.g., 1 for 1%)',
+        examples: [1, 0.5],
     })),
 });
 
 const QuoteSwapResponseSchema = Type.Object({
-    network: Type.String({
-        description: 'Blockchain network used for the quote',
-        examples: ['polygon'],
+    poolAddress: Type.Optional(Type.String({
+        description: 'Pool address used for the quote (if available)',
+        examples: ['0x...'],
+    })),
+    estimatedAmountIn: Type.Number({
+        description: 'Estimated input amount for the swap',
+        examples: [100],
     }),
-    timestamp: Type.Number({
-        description: 'Unix timestamp when the quote was generated',
-        examples: [1752698443968],
+    estimatedAmountOut: Type.Number({
+        description: 'Estimated output amount from the swap',
+        examples: [2.199246827241313],
     }),
-    latency: Type.Number({
-        description: 'Response time in milliseconds',
-        examples: [1057],
+    minAmountOut: Type.Number({
+        description: 'Minimum output amount with slippage tolerance',
+        examples: [2.179246827241313],
     }),
-    base: Type.String({
-        description: 'Base token symbol',
-        examples: ['ALI'],
+    maxAmountIn: Type.Number({
+        description: 'Maximum input amount with slippage tolerance',
+        examples: [100.5],
     }),
-    quote: Type.String({
-        description: 'Quote token symbol',
-        examples: ['WPOL'],
+    baseTokenBalanceChange: Type.Number({
+        description: 'Change in base token balance',
+        examples: [-100],
     }),
-    amount: Type.String({
-        description: 'Input amount for the swap',
-        examples: ['100'],
+    quoteTokenBalanceChange: Type.Number({
+        description: 'Change in quote token balance',
+        examples: [2.199246827241313],
     }),
-    expectedAmount: Type.String({
-        description: 'Expected output amount from the swap',
-        examples: ['2.199246827241313'],
-    }),
-    price: Type.String({
+    price: Type.Number({
         description: 'Price per base token in quote token units',
-        examples: ['0.021992468272413128'],
+        examples: [0.021992468272413128],
     }),
     gasPrice: Type.Number({
         description: 'Current gas price in gwei',
         examples: [30.000000145],
     }),
-    gasPriceToken: Type.String({
-        description: 'Native token symbol for gas payments',
-        examples: ['POL'],
-    }),
     gasLimit: Type.Number({
         description: 'Estimated gas limit for the transaction',
         examples: [3000000],
     }),
-    gasCost: Type.String({
+    gasCost: Type.Number({
         description: 'Estimated gas cost in native tokens',
-        examples: ['0.090000000435'],
+        examples: [0.090000000435],
     }),
-    poolAddress: Type.Optional(Type.String({
-        description: 'Pool address used for the quote (if available)',
-        examples: ['0x4b9Bce8888bEE8b252a7D599AA534C2faB9a07A5'],
-    })),
-    feeTier: Type.Optional(Type.Number({
-        description: 'Fee tier in basis points (e.g., 3000 = 0.3%)',
-        examples: [3000],
-    })),
 });
 
 type QuoteSwapRequest = Static<typeof QuoteSwapRequestSchema>;
@@ -193,29 +185,43 @@ async function quoteClmmSwap(
     const inputToken = side === 'SELL' ? baseToken : quoteToken;
     const outputToken = side === 'SELL' ? quoteToken : baseToken;
 
-    // Use string-based calculation to avoid scientific notation
+    // Convert amount to Wei based on token decimals
     const amountStr = amount.toString();
     const decimals = inputToken.decimals;
 
     let inputAmountWei: BigNumber;
-    // If amount already has enough decimal places, use it directly
-    if (amountStr.includes('.') && amountStr.split('.')[1].length >= decimals) {
-        inputAmountWei = BigNumber.from(amountStr.replace('.', ''));
+
+    // Handle decimal conversion properly for BigNumber
+    if (amountStr.includes('.')) {
+        const [wholePart, decimalPart] = amountStr.split('.');
+        const paddedDecimalPart = decimalPart.padEnd(decimals, '0').slice(0, decimals);
+        const fullNumber = wholePart + paddedDecimalPart;
+        inputAmountWei = BigNumber.from(fullNumber);
     } else {
-        // Otherwise, multiply by 10^decimals using string arithmetic
-        const multiplier = '1' + '0'.repeat(decimals);
-        inputAmountWei = BigNumber.from(amountStr).mul(BigNumber.from(multiplier));
+        // No decimal part, just multiply by 10^decimals
+        const multiplier = BigNumber.from(10).pow(decimals);
+        inputAmountWei = BigNumber.from(amountStr).mul(multiplier);
     }
 
     try {
-        // If poolAddress is provided, get fee tier from pool
-        let feeTier = 3000; // Default to 0.3%
+        // Find pool address if not provided
+        let actualPoolAddress = poolAddress;
+        if (!actualPoolAddress) {
+            actualPoolAddress = await quickswap.findDefaultPool(
+                baseToken.symbol,
+                quoteToken.symbol,
+                'clmm'
+            );
 
-        if (poolAddress && quickswap.factoryV3) {
-            // For Algebra V3, we can't determine fee tier from pool address easily
-            // since it uses dynamic fees. Just use the default fee tier.
-            feeTier = 3000; // Default to 0.3%
+            if (!actualPoolAddress) {
+                throw new Error(`No CLMM pool found for ${baseToken.symbol}-${quoteToken.symbol}`);
+            }
+
+            logger.info(`Found pool address: ${actualPoolAddress} for ${baseToken.symbol}-${quoteToken.symbol}`);
         }
+
+        // For Algebra V3, we use dynamic fees, so just use the default fee tier
+        let feeTier = 3000; // Default to 0.3%
 
         // Use V3 quoter to get quote
         let quotedAmount: BigNumber;
@@ -247,11 +253,11 @@ async function quoteClmmSwap(
                 // If quoter fails, try direct pool call as fallback
                 logger.warn('Quoter failed, trying direct pool call', error);
 
-                if (poolAddress) {
+                if (actualPoolAddress) {
                     // Try to get quote directly from pool using globalState
                     const { Contract } = await import('ethers');
                     const poolContract = new Contract(
-                        poolAddress,
+                        actualPoolAddress,
                         ['function globalState() external view returns (uint160 price, int24 tick, uint16 fee, uint16 timepointIndex, uint8 communityFeeToken0, uint8 communityFeeToken1, bool unlocked)'],
                         quickswap.ethereum.provider
                     );
@@ -294,7 +300,7 @@ async function quoteClmmSwap(
             maxInputAmount,
             feeTier,
             slippage: slippagePercent,
-            poolAddress,
+            poolAddress: actualPoolAddress,
         });
 
         return {
@@ -302,13 +308,13 @@ async function quoteClmmSwap(
             outputToken,
             inputAmount: { quotient: inputAmountWei, currency: inputToken },
             outputAmount: { quotient: quotedAmount, currency: outputToken },
-            minOutputAmount: { quotient: BigNumber.from(Math.floor(minOutputAmount * Math.pow(10, outputToken.decimals)).toString()) },
+            minOutputAmount: { quotient: BigNumber.from(Math.floor(minOutputAmount * Math.pow(10, outputToken.decimals)).toString()), currency: outputToken },
             estimatedAmountIn: inputAmount,
             estimatedAmountOut: outputAmount,
             minAmountOut: minOutputAmount,
             maxAmountIn: maxInputAmount,
             feeTier,
-            poolAddress,
+            poolAddress: actualPoolAddress,
         };
     } catch (error) {
         logger.error('QuickSwap CLMM quote failed', error);
@@ -356,9 +362,9 @@ const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
                     'ALI to WPOL': {
                         summary: 'Sell 100 ALI for WPOL',
                         value: {
-                            base: 'ALI',
-                            quote: 'WPOL',
-                            amount: '100',
+                            baseToken: 'ALI',
+                            quoteToken: 'WPOL',
+                            amount: 100,
                             side: 'SELL',
                             network: 'polygon',
                         },
@@ -366,9 +372,9 @@ const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
                     'WPOL to USDC': {
                         summary: 'Buy WPOL with USDC',
                         value: {
-                            base: 'WPOL',
-                            quote: 'USDC',
-                            amount: '1',
+                            baseToken: 'WPOL',
+                            quoteToken: 'USDC',
+                            amount: 1,
                             side: 'BUY',
                             network: 'polygon',
                         },
@@ -378,77 +384,72 @@ const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
         },
         async (request, _reply) => {
             const startTimestamp = Date.now();
-            const { base, quote, amount, side, network, poolAddress } = request.query;
+            const { baseToken, quoteToken, amount, side, network, poolAddress, slippagePct } = request.query;
 
             try {
                 logger.info('QuickSwap CLMM quote swap request received', {
-                    base,
-                    quote,
+                    baseToken,
+                    quoteToken,
                     amount,
                     side,
                     network,
                     poolAddress,
+                    slippagePct,
                 });
 
+                const networkToUse = network || 'polygon';
+
                 // Get QuickSwap instance
-                const quickswap = await QuickSwap.getInstance(network);
+                const quickswap = await QuickSwap.getInstance(networkToUse);
 
                 if (!quickswap.ready) {
                     throw fastify.httpErrors.internalServerError('QuickSwap connector not ready');
                 }
 
                 // Get tokens
-                const baseToken = quickswap.getTokenBySymbol(base);
-                const quoteToken = quickswap.getTokenBySymbol(quote);
+                const baseTokenObj = quickswap.getTokenBySymbol(baseToken);
+                const quoteTokenObj = quickswap.getTokenBySymbol(quoteToken);
 
-                if (!baseToken) {
-                    throw fastify.httpErrors.badRequest(`Base token ${base} not found`);
+                if (!baseTokenObj) {
+                    throw fastify.httpErrors.badRequest(`Base token ${baseToken} not found`);
                 }
 
-                if (!quoteToken) {
-                    throw fastify.httpErrors.badRequest(`Quote token ${quote} not found`);
-                }
-
-                // Parse amount properly to avoid scientific notation
-                const amountNumber = parseFloat(amount);
-                if (isNaN(amountNumber)) {
-                    throw fastify.httpErrors.badRequest('Invalid amount parameter');
+                if (!quoteTokenObj) {
+                    throw fastify.httpErrors.badRequest(`Quote token ${quoteToken} not found`);
                 }
 
                 // Get actual quote using the shared function
                 const quoteResult = await getQuickSwapClmmQuote(
                     fastify,
-                    network,
+                    networkToUse,
                     poolAddress || '',
-                    base,
-                    quote,
-                    amountNumber,
+                    baseToken,
+                    quoteToken,
+                    amount,
                     side,
+                    slippagePct,
                 );
 
                 // Get Ethereum instance for gas price
                 const { Ethereum } = await import('../../../chains/ethereum/ethereum');
-                const ethereum = await Ethereum.getInstance(network);
+                const ethereum = await Ethereum.getInstance(networkToUse);
 
                 const gasPriceBN = await ethereum.provider.getGasPrice();
                 const gasPrice = parseFloat(gasPriceBN.toString()) / 1e9; // Convert to gwei
                 const gasLimit = quickswap.gasLimitEstimate;
 
                 const response: QuoteSwapResponse = {
-                    network,
-                    timestamp: startTimestamp,
-                    latency: Date.now() - startTimestamp,
-                    base,
-                    quote,
-                    amount,
-                    expectedAmount: quoteResult.quote.estimatedAmountOut.toString(),
-                    price: (quoteResult.quote.estimatedAmountOut / quoteResult.quote.estimatedAmountIn).toString(),
-                    gasPrice,
-                    gasPriceToken: ethereum.nativeTokenSymbol,
-                    gasLimit,
-                    gasCost: ((gasPrice * gasLimit) / 1e9).toString(), // ETH cost
                     poolAddress: quoteResult.quote.poolAddress || '',
-                    feeTier: quoteResult.quote.feeTier || 0,
+                    estimatedAmountIn: quoteResult.quote.estimatedAmountIn,
+                    estimatedAmountOut: quoteResult.quote.estimatedAmountOut,
+                    minAmountOut: quoteResult.quote.minAmountOut || quoteResult.quote.estimatedAmountOut,
+                    maxAmountIn: quoteResult.quote.maxAmountIn || quoteResult.quote.estimatedAmountIn,
+                    baseTokenBalanceChange: side === 'SELL' ? -amount : quoteResult.quote.estimatedAmountOut,
+                    quoteTokenBalanceChange: side === 'SELL' ? quoteResult.quote.estimatedAmountOut : -amount,
+                    price: quoteResult.quote.estimatedAmountOut / quoteResult.quote.estimatedAmountIn,
+                    gasPrice,
+                    gasLimit,
+                    gasCost: (gasPrice * gasLimit) / 1e9, // ETH cost
                 };
 
                 logger.info('QuickSwap CLMM quote swap completed', response);

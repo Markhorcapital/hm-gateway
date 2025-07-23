@@ -44,7 +44,7 @@ const openPositionRoute: FastifyPluginAsync = async (fastify) => {
                         upperPrice: { type: 'number', examples: [0.002] },
                         poolAddress: { type: 'string', examples: [''] },
                         baseToken: { type: 'string', examples: ['ALI'] },
-                        quoteToken: { type: 'string', examples: ['WMATIC'] },
+                        quoteToken: { type: 'string', examples: ['WPOL'] },
                         baseTokenAmount: { type: 'number', examples: [100] },
                         quoteTokenAmount: { type: 'number', examples: [0.1] },
                         slippagePct: { type: 'number', examples: [1] },

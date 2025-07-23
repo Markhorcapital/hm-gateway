@@ -15,7 +15,7 @@ import {
     getQuickSwapV2RouterAddress,
     IUniswapV2Router02ABI,
 } from '../quickswap.contracts';
-import { formatTokenAmount } from '../../../connectors/uniswap/uniswap.utils';
+import { formatTokenAmount } from '../../uniswap/uniswap.utils';
 
 import { getQuickSwapAmmQuote } from './quoteSwap';
 
@@ -52,10 +52,44 @@ async function executeSwap(
             throw fastify.httpErrors.badRequest('Wallet not found');
         }
 
-        // Extract info from quote
-        let wrapTxHash = null;
+        // Check token allowance before executing swap
+        const routerAddress = getQuickSwapV2RouterAddress(network);
         let inputTokenAddress = quote.inputToken.address;
         let outputTokenAddress = quote.outputToken.address;
+
+        // Get current allowance for input token
+        const inputTokenContract = ethereum.getContract(inputTokenAddress, wallet);
+        const allowance = await ethereum.getERC20Allowance(
+            inputTokenContract,
+            wallet,
+            routerAddress,
+            quote.inputToken.decimals,
+        );
+
+        const amountNeeded = side === 'SELL' ? quote.inputAmount.quotient : BigNumber.from(Math.floor(quote.maxAmountIn * Math.pow(10, quote.inputToken.decimals)).toString());
+        const currentAllowance = BigNumber.from(allowance.value);
+
+        logger.info(
+            `Current allowance: ${formatTokenAmount(currentAllowance.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol}`,
+        );
+        logger.info(
+            `Amount needed: ${formatTokenAmount(amountNeeded.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol}`,
+        );
+
+        // Check if allowance is sufficient
+        if (currentAllowance.lt(amountNeeded)) {
+            logger.error(`Insufficient allowance for ${quote.inputToken.symbol}`);
+            throw fastify.httpErrors.badRequest(
+                `Insufficient allowance for ${quote.inputToken.symbol}. Please approve at least ${formatTokenAmount(amountNeeded.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol} (${inputTokenAddress}) for the QuickSwap V2 Router (${routerAddress})`,
+            );
+        } else {
+            logger.info(
+                `Sufficient allowance exists: ${formatTokenAmount(currentAllowance.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol}`,
+            );
+        }
+
+        // Extract info from quote
+        let wrapTxHash = null;
 
         // Handle ETH->WETH wrapping if needed
         if (baseToken === 'ETH' && side === 'SELL') {
@@ -87,7 +121,6 @@ async function executeSwap(
         }
 
         // Get QuickSwap router contract
-        const routerAddress = getQuickSwapV2RouterAddress(network);
         const routerContract = new Contract(
             routerAddress,
             IUniswapV2Router02ABI.abi,
@@ -231,7 +264,7 @@ const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
                         ...ExecuteSwapRequest.properties,
                         network: { type: 'string', default: 'polygon' },
                         walletAddress: { type: 'string', examples: [firstWalletAddress] },
-                        baseToken: { type: 'string', examples: ['WMATIC'] },
+                        baseToken: { type: 'string', examples: ['WPOL'] },
                         quoteToken: { type: 'string', examples: ['USDC'] },
                         amount: { type: 'number', examples: [0.001] },
                         side: { type: 'string', enum: ['BUY', 'SELL'], examples: ['SELL'] },

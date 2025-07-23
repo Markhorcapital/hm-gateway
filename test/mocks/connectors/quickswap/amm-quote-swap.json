@@ -2,7 +2,7 @@
     "network": "polygon",
     "timestamp": 1642680000000,
     "latency": 100,
-    "base": "WMATIC",
+    "base": "WPOL",
     "quote": "USDC",
     "amount": "1.0",
     "expectedAmount": "0.75",

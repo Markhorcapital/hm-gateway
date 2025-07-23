@@ -11,7 +11,8 @@ import {
     IUniswapV2Router02ABI,
     IAlgebraV3FactoryABI,
     IAlgebraV3QuoterABI,
-    IAlgebraV3RouterABI
+    IAlgebraV3RouterABI,
+    IAlgebraV3PositionManagerABI
 } from './quickswap.contracts';
 
 // V3 (CLMM) imports - QuickSwap uses Algebra V3, not standard Uniswap V3
@@ -106,8 +107,8 @@ export class QuickSwap {
 
                 this.v3NFTManager = new Contract(
                     this.config.quickswapV3NftManagerAddress(this.networkName),
-                    // Use standard Uniswap V3 ABI since QuickSwap implements same interface
-                    require('@uniswap/v3-periphery/artifacts/contracts/interfaces/INonfungiblePositionManager.sol/INonfungiblePositionManager.json').abi,
+                    // Use Algebra V3 Position Manager ABI
+                    IAlgebraV3PositionManagerABI,
                     this.ethereum.provider,
                 );
 
@@ -243,6 +244,13 @@ export class QuickSwap {
      */
     public get quoterV3(): Contract | null {
         return this.v3Quoter;
+    }
+
+    /**
+     * Get ethereum provider
+     */
+    public get provider() {
+        return this.ethereum.provider;
     }
 
     /**

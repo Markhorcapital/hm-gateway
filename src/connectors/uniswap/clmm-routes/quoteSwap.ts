@@ -57,11 +57,12 @@ async function quoteClmmSwap(
     let trade;
     if (exactIn) {
       // For SELL (exactIn), we use the input amount and EXACT_INPUT trade type
+      const inputAmountRaw = Math.floor(amount * Math.pow(10, inputToken.decimals));
+      // Convert to string without scientific notation for BigInt parsing
+      const inputAmountStr = inputAmountRaw.toLocaleString('fullwide', { useGrouping: false });
       const inputAmount = CurrencyAmount.fromRawAmount(
         inputToken,
-        JSBI.BigInt(
-          Math.floor(amount * Math.pow(10, inputToken.decimals)).toString(),
-        ),
+        JSBI.BigInt(inputAmountStr),
       );
       trade = await V3Trade.fromRoute(
         route,
@@ -70,11 +71,12 @@ async function quoteClmmSwap(
       );
     } else {
       // For BUY (exactOut), we use the output amount and EXACT_OUTPUT trade type
+      const outputAmountRaw = Math.floor(amount * Math.pow(10, outputToken.decimals));
+      // Convert to string without scientific notation for BigInt parsing
+      const outputAmountStr = outputAmountRaw.toLocaleString('fullwide', { useGrouping: false });
       const outputAmount = CurrencyAmount.fromRawAmount(
         outputToken,
-        JSBI.BigInt(
-          Math.floor(amount * Math.pow(10, outputToken.decimals)).toString(),
-        ),
+        JSBI.BigInt(outputAmountStr),
       );
       trade = await V3Trade.fromRoute(
         route,

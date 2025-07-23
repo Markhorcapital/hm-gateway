@@ -57,18 +57,7 @@ export const contractAddresses: NetworkContractAddresses = {
         quickswapV3FactoryAddress: '0xd2480162Aa7F02Ead7BF4C127465446150D58452',
     },
 
-    // Polygon zkEVM (Algebra implementation)
-    'polygon-zkevm': {
-        // V2 contracts
-        quickswapV2RouterAddress: '0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff',
-        quickswapV2FactoryAddress: '0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32',
 
-        // V3 contracts (Algebra implementation)
-        quickswapV3SmartOrderRouterAddress: '0xF6Ad3CcF71Abb3E12beCf6b3D2a74C963859ADCd',
-        quickswapV3NftManagerAddress: '0xd8E1E7009802c914b0d39B31Fc1759A865b727B1',
-        quickswapV3QuoterV2ContractAddress: '0x55BeE1bD3Eb9986f6d2d963278de09eE92a3eF1D',
-        quickswapV3FactoryAddress: '0x4B9f4d2435Ef65559567e5DbFC1BbB37abC43B57',
-    },
 
     // Manta Pacific (Uni implementation)
     manta: {
@@ -269,6 +258,100 @@ export const IAlgebraV3RouterABI = [
         ],
         name: 'exactOutputSingle',
         outputs: [{ internalType: 'uint256', name: 'amountIn', type: 'uint256' }],
+        stateMutability: 'payable',
+        type: 'function'
+    }
+];
+
+/**
+ * QuickSwap Algebra V3 Position Manager ABI
+ * Key difference: Uses Algebra-specific position management functions
+ */
+export const IAlgebraV3PositionManagerABI = [
+    {
+        inputs: [
+            { internalType: 'uint256', name: 'tokenId', type: 'uint256' }
+        ],
+        name: 'positions',
+        outputs: [
+            { internalType: 'uint96', name: 'nonce', type: 'uint96' },
+            { internalType: 'address', name: 'operator', type: 'address' },
+            { internalType: 'address', name: 'token0', type: 'address' },
+            { internalType: 'address', name: 'token1', type: 'address' },
+            { internalType: 'uint24', name: 'fee', type: 'uint24' },
+            { internalType: 'int24', name: 'tickLower', type: 'int24' },
+            { internalType: 'int24', name: 'tickUpper', type: 'int24' },
+            { internalType: 'uint128', name: 'liquidity', type: 'uint128' },
+            { internalType: 'uint256', name: 'feeGrowthInside0LastX128', type: 'uint256' },
+            { internalType: 'uint256', name: 'feeGrowthInside1LastX128', type: 'uint256' },
+            { internalType: 'uint128', name: 'tokensOwed0', type: 'uint128' },
+            { internalType: 'uint128', name: 'tokensOwed1', type: 'uint128' }
+        ],
+        stateMutability: 'view',
+        type: 'function'
+    },
+    {
+        inputs: [
+            { internalType: 'address', name: 'owner', type: 'address' }
+        ],
+        name: 'balanceOf',
+        outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+        stateMutability: 'view',
+        type: 'function'
+    },
+    {
+        inputs: [
+            { internalType: 'address', name: 'owner', type: 'address' },
+            { internalType: 'uint256', name: 'index', type: 'uint256' }
+        ],
+        name: 'tokenOfOwnerByIndex',
+        outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+        stateMutability: 'view',
+        type: 'function'
+    },
+    {
+        inputs: [
+            { internalType: 'uint256', name: 'tokenId', type: 'uint256' },
+            { internalType: 'address', name: 'recipient', type: 'address' },
+            { internalType: 'uint128', name: 'amount0Max', type: 'uint128' },
+            { internalType: 'uint128', name: 'amount1Max', type: 'uint128' }
+        ],
+        name: 'collect',
+        outputs: [
+            { internalType: 'uint256', name: 'amount0', type: 'uint256' },
+            { internalType: 'uint256', name: 'amount1', type: 'uint256' }
+        ],
+        stateMutability: 'payable',
+        type: 'function'
+    },
+    {
+        inputs: [
+            {
+                components: [
+                    { internalType: 'address', name: 'token0', type: 'address' },
+                    { internalType: 'address', name: 'token1', type: 'address' },
+                    { internalType: 'uint24', name: 'fee', type: 'uint24' },
+                    { internalType: 'int24', name: 'tickLower', type: 'int24' },
+                    { internalType: 'int24', name: 'tickUpper', type: 'int24' },
+                    { internalType: 'uint256', name: 'amount0Desired', type: 'uint256' },
+                    { internalType: 'uint256', name: 'amount1Desired', type: 'uint256' },
+                    { internalType: 'uint256', name: 'amount0Min', type: 'uint256' },
+                    { internalType: 'uint256', name: 'amount1Min', type: 'uint256' },
+                    { internalType: 'address', name: 'recipient', type: 'address' },
+                    { internalType: 'uint256', name: 'deadline', type: 'uint256' }
+                ],
+                internalType: 'struct INonfungiblePositionManager.MintParams',
+                name: 'params',
+                type: 'tuple'
+            }
+        ],
+        name: 'mint',
+        outputs: [
+            { internalType: 'uint256', name: 'tokenId', type: 'uint256' },
+            { internalType: 'uint128', name: 'liquidity', type: 'uint128' },
+            { internalType: 'uint256', name: 'amount0', type: 'uint256' },
+            { internalType: 'uint256', name: 'amount1', type: 'uint256' }
+        ],
         stateMutability: 'payable',
         type: 'function'
     }

@@ -1601,5 +1601,12 @@
     "symbol": "wstETH",
     "address": "ZScHuTtqZukUrtZS43teTKGs2VqkKL8k4QCouR2n6Uo",
     "decimals": 8
+  },
+  {
+    "chainId": 101,
+    "name": "Artificial Liquid Intelligence",
+    "symbol": "ALI",
+    "address": "9wvorGtBJ8gyLorFTmwXWcymPoGVUBn6MRzHwFpCdCeC",
+    "decimals": 8
   }
 ]

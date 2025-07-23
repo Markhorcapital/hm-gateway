@@ -29,6 +29,13 @@
   },
   {
     "chainId": 1,
+    "name": "Artificial Liquid Intelligence",
+    "symbol": "ALI",
+    "address": "0x6b0b3a982b4634ac68dd83a4dbf02311ce324181",
+    "decimals": 18
+  },
+  {
+    "chainId": 1,
     "name": "ApeCoin",
     "symbol": "APE",
     "address": "0x4d224452801aced8b2f0aebe155379bb5d594381",

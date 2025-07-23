@@ -1,4 +1,4 @@
-import { BigNumber, Contract } from 'ethers';
+import { BigNumber, Contract, utils } from 'ethers';
 import { FastifyPluginAsync } from 'fastify';
 
 import { Ethereum } from '../../../chains/ethereum/ethereum';
@@ -14,8 +14,8 @@ import { QuickSwap } from '../quickswap';
 import {
     getQuickSwapV3SmartOrderRouterAddress,
 } from '../quickswap.contracts';
-import { ISwapRouter02ABI } from '../../uniswap/uniswap.contracts';
-import { formatTokenAmount } from '../../../connectors/uniswap/uniswap.utils';
+import { IAlgebraV3RouterABI } from '../quickswap.contracts';
+import { formatTokenAmount } from '../../uniswap/uniswap.utils';
 
 import { getQuickSwapClmmQuote } from './quoteSwap';
 
@@ -46,16 +46,76 @@ async function executeSwap(
                 slippagePct,
             );
 
+        // Debug: Log the quote structure
+        logger.info('Quote structure received:', {
+            hasInputAmount: !!quote.inputAmount,
+            hasOutputAmount: !!quote.outputAmount,
+            hasMinOutputAmount: !!quote.minOutputAmount,
+            quoteKeys: Object.keys(quote),
+            inputAmountType: typeof quote.inputAmount,
+            outputAmountType: typeof quote.outputAmount,
+        });
+
         // Get the wallet
         const wallet = await ethereum.getWallet(walletAddress);
         if (!wallet) {
             throw fastify.httpErrors.badRequest('Wallet not found');
         }
 
-        // Extract info from quote
-        let wrapTxHash = null;
+        // Check token allowance before executing swap
+        const routerAddress = getQuickSwapV3SmartOrderRouterAddress(network);
         let inputTokenAddress = quote.inputToken.address;
         let outputTokenAddress = quote.outputToken.address;
+
+        // Get current allowance for input token
+        const inputTokenContract = ethereum.getContract(inputTokenAddress, wallet);
+        const allowance = await ethereum.getERC20Allowance(
+            inputTokenContract,
+            wallet,
+            routerAddress,
+            quote.inputToken.decimals,
+        );
+
+        // Handle different quote structures
+        let amountNeeded: BigNumber;
+        if (quote.inputAmount && quote.inputAmount.quotient) {
+            if (side === 'SELL') {
+                amountNeeded = quote.inputAmount.quotient;
+            } else {
+                // For BUY side, we need the maximum input amount
+                amountNeeded = BigNumber.from(Math.floor(quote.maxAmountIn * Math.pow(10, quote.inputToken.decimals)).toString());
+            }
+        } else if (quote.estimatedAmountIn) {
+            // Fallback to estimatedAmountIn if inputAmount.quotient is not available
+            const inputAmountWei = BigNumber.from(Math.floor(quote.estimatedAmountIn * Math.pow(10, quote.inputToken.decimals)).toString());
+            amountNeeded = inputAmountWei;
+        } else {
+            throw new Error('Invalid quote structure: missing input amount information');
+        }
+
+        const currentAllowance = BigNumber.from(allowance.value);
+
+        logger.info(
+            `Current allowance: ${formatTokenAmount(currentAllowance.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol}`,
+        );
+        logger.info(
+            `Amount needed: ${formatTokenAmount(amountNeeded.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol}`,
+        );
+
+        // Check if allowance is sufficient
+        if (currentAllowance.lt(amountNeeded)) {
+            logger.error(`Insufficient allowance for ${quote.inputToken.symbol}`);
+            throw fastify.httpErrors.badRequest(
+                `Insufficient allowance for ${quote.inputToken.symbol}. Please approve at least ${formatTokenAmount(amountNeeded.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol} (${inputTokenAddress}) for the QuickSwap V3 Router (${routerAddress})`,
+            );
+        } else {
+            logger.info(
+                `Sufficient allowance exists: ${formatTokenAmount(currentAllowance.toString(), quote.inputToken.decimals)} ${quote.inputToken.symbol}`,
+            );
+        }
+
+        // Extract info from quote
+        let wrapTxHash = null;
 
         // Handle ETH->WETH wrapping if needed
         if (baseToken === 'ETH' && side === 'SELL') {
@@ -87,60 +147,86 @@ async function executeSwap(
         }
 
         // Get QuickSwap V3 router contract (SwapRouter02 equivalent)
-        const routerAddress = getQuickSwapV3SmartOrderRouterAddress(network);
         const routerContract = new Contract(
             routerAddress,
-            ISwapRouter02ABI,
+            IAlgebraV3RouterABI,
             wallet,
         );
 
         // Prepare swap parameters for V3
-        const inputAmount = BigNumber.from(quote.inputAmount.quotient.toString());
-        const minOutputAmount = BigNumber.from(quote.minOutputAmount.quotient.toString());
+        let inputAmount: BigNumber;
+        let minOutputAmount: BigNumber;
+
+        if (quote.inputAmount && quote.inputAmount.quotient && quote.minOutputAmount && quote.minOutputAmount.quotient) {
+            inputAmount = BigNumber.from(quote.inputAmount.quotient.toString());
+            minOutputAmount = BigNumber.from(quote.minOutputAmount.quotient.toString());
+        } else if (quote.estimatedAmountIn && quote.minAmountOut) {
+            // Fallback to estimatedAmountIn and minAmountOut
+            inputAmount = BigNumber.from(Math.floor(quote.estimatedAmountIn * Math.pow(10, quote.inputToken.decimals)).toString());
+            minOutputAmount = BigNumber.from(Math.floor(quote.minAmountOut * Math.pow(10, quote.outputToken.decimals)).toString());
+        } else {
+            throw new Error('Invalid quote structure: missing amount information for swap execution');
+        }
+
         const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from now
+
+        // Get current gas price for Polygon
+        const currentGasPrice = await ethereum.provider.getGasPrice();
+        const maxPriorityFeePerGas = utils.parseUnits('30', 'gwei'); // 30 Gwei priority fee
+        const maxFeePerGas = currentGasPrice.add(maxPriorityFeePerGas);
+
+        logger.info(`Gas parameters for Polygon:`, {
+            maxPriorityFeePerGas: utils.formatUnits(maxPriorityFeePerGas, 'gwei') + ' Gwei',
+            maxFeePerGas: utils.formatUnits(maxFeePerGas, 'gwei') + ' Gwei',
+            currentGasPrice: utils.formatUnits(currentGasPrice, 'gwei') + ' Gwei'
+        });
 
         let swapTx;
 
         // Execute V3 swap using exactInputSingle or exactOutputSingle
         if (side === 'SELL') {
-            // Exact input swap
+            // Exact input swap - no fee parameter
             const params = {
                 tokenIn: inputTokenAddress,
                 tokenOut: outputTokenAddress,
-                fee: quote.feeTier || 3000, // Default to 0.3% fee
                 recipient: walletAddress,
                 deadline,
                 amountIn: inputAmount,
                 amountOutMinimum: minOutputAmount,
-                sqrtPriceLimitX96: 0, // No price limit
+                limitSqrtPrice: 0 // No price limit
             };
 
-            swapTx = await routerContract.exactInputSingle(params);
+            swapTx = await routerContract.exactInputSingle(params, {
+                maxFeePerGas: maxFeePerGas,
+                maxPriorityFeePerGas: maxPriorityFeePerGas
+            });
         } else {
-            // Exact output swap (BUY)
+            // Exact output swap (BUY) - no fee parameter for Algebra V3
             const params = {
                 tokenIn: inputTokenAddress,
                 tokenOut: outputTokenAddress,
-                fee: quote.feeTier || 3000,
                 recipient: walletAddress,
                 deadline,
                 amountOut: minOutputAmount,
                 amountInMaximum: inputAmount,
-                sqrtPriceLimitX96: 0,
+                limitSqrtPrice: 0 // No price limit
             };
 
-            swapTx = await routerContract.exactOutputSingle(params);
+            swapTx = await routerContract.exactOutputSingle(params, {
+                maxFeePerGas: maxFeePerGas,
+                maxPriorityFeePerGas: maxPriorityFeePerGas
+            });
         }
 
         const receipt = await swapTx.wait();
 
         // Calculate actual amounts from logs
         let actualInputAmount = formatTokenAmount(
-            quote.inputAmount.quotient.toString(),
+            inputAmount.toString(),
             quote.inputToken.decimals,
         );
         let actualOutputAmount = formatTokenAmount(
-            quote.outputAmount.quotient.toString(),
+            minOutputAmount.toString(),
             quote.outputToken.decimals,
         );
 
@@ -251,7 +337,7 @@ const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
                         poolAddress: {
                             type: 'string',
                             description: 'Optional: Specific pool address for the token pair',
-                            examples: ['0x4b9Bce8888bEE8b252a7D599AA534C2faB9a07A5'],
+                            examples: ['0x...'],
                         },
                         slippagePct: {
                             type: 'number',

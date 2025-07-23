@@ -1,0 +1,11 @@
+{
+    "address": "0x24Bf2Ee2e09477082d1DDf2F0603baa460B3F5f3",
+    "baseTokenAddress": "0xbFc70507384047Aa74c29Cdc8c5Cb88D0f7213AC",
+    "quoteTokenAddress": "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+    "binStep": 0,
+    "feePct": 0.3535,
+    "price": 34,
+    "baseTokenAmount": 2107907.2567182207,
+    "quoteTokenAmount": 7.1668846E-11,
+    "activeBinId": 0
+}

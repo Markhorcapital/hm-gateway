@@ -1,0 +1,6 @@
+{
+    "txHash": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "status": "success",
+    "gasUsed": "150000",
+    "gasPrice": "20000000000"
+}

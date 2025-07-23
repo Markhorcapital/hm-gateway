@@ -31,7 +31,7 @@ export const poolInfoRoute: FastifyPluginAsync = async (fastify) => {
                             default: 'ethereum',
                         },
                         poolAddress: { type: 'string', examples: [''] },
-                        baseToken: { type: 'string', examples: ['WMATIC'] },
+                        baseToken: { type: 'string', examples: ['WPOL'] },
                         quoteToken: { type: 'string', examples: ['USDC'] },
                     },
                 },

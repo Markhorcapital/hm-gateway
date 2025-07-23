@@ -57,7 +57,6 @@ export namespace QuickSwapConfig {
             polygon: {},
             mumbai: {},
             dogechain: {},
-            'polygon-zkevm': {},
             manta: {},
         },
     );
@@ -79,7 +78,6 @@ export namespace QuickSwapConfig {
                     'polygon',
                     'mumbai',
                     'dogechain',
-                    'polygon-zkevm',
                     'manta',
                 ],
             },

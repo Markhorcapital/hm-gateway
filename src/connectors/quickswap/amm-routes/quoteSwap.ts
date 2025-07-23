@@ -9,19 +9,21 @@ import { formatTokenAmount } from '../../uniswap/uniswap.utils';
 
 // Schemas
 const QuoteSwapRequestSchema = Type.Object({
-    base: Type.String(),
-    quote: Type.String(),
+    baseToken: Type.String(),
+    quoteToken: Type.String(),
     amount: Type.String(),
     side: Type.Union([Type.Literal('BUY'), Type.Literal('SELL')]),
     network: Type.String(),
+    slippagePct: Type.Optional(Type.Number()),
+    poolAddress: Type.Optional(Type.String()),
 });
 
 const QuoteSwapResponseSchema = Type.Object({
     network: Type.String(),
     timestamp: Type.Number(),
     latency: Type.Number(),
-    base: Type.String(),
-    quote: Type.String(),
+    baseToken: Type.String(),
+    quoteToken: Type.String(),
     amount: Type.String(),
     expectedAmount: Type.String(),
     price: Type.String(),
@@ -176,7 +178,7 @@ async function quoteAmmSwap(
             outputToken,
             inputAmount: { quotient: amounts[0], currency: inputToken },
             outputAmount: { quotient: amounts[amounts.length - 1], currency: outputToken },
-            minOutputAmount: { quotient: BigNumber.from(Math.floor(minOutputAmount * Math.pow(10, outputToken.decimals)).toString()) },
+            minOutputAmount: { quotient: BigNumber.from(Math.floor(minOutputAmount * Math.pow(10, outputToken.decimals)).toString()), currency: outputToken },
             estimatedAmountIn: inputAmount,
             estimatedAmountOut: outputAmount,
             minAmountOut: minOutputAmount,
@@ -207,15 +209,17 @@ const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
         },
         async (request, _reply) => {
             const startTimestamp = Date.now();
-            const { base, quote, amount, side, network } = request.query;
+            const { baseToken, quoteToken, amount, side, network, slippagePct, poolAddress } = request.query;
 
             try {
                 logger.info('QuickSwap AMM quote swap request received', {
-                    base,
-                    quote,
+                    baseToken,
+                    quoteToken,
                     amount,
                     side,
                     network,
+                    slippagePct,
+                    poolAddress,
                 });
 
                 // Get QuickSwap instance
@@ -226,15 +230,15 @@ const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
                 }
 
                 // Get tokens
-                const baseToken = quickswap.getTokenBySymbol(base);
-                const quoteToken = quickswap.getTokenBySymbol(quote);
+                const baseTokenObj = quickswap.getTokenBySymbol(baseToken);
+                const quoteTokenObj = quickswap.getTokenBySymbol(quoteToken);
 
-                if (!baseToken) {
-                    throw fastify.httpErrors.badRequest(`Base token ${base} not found`);
+                if (!baseTokenObj) {
+                    throw fastify.httpErrors.badRequest(`Base token ${baseToken} not found`);
                 }
 
-                if (!quoteToken) {
-                    throw fastify.httpErrors.badRequest(`Quote token ${quote} not found`);
+                if (!quoteTokenObj) {
+                    throw fastify.httpErrors.badRequest(`Quote token ${quoteToken} not found`);
                 }
 
                 // Parse amount properly to avoid scientific notation
@@ -247,11 +251,12 @@ const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
                 const quoteResult = await getQuickSwapAmmQuote(
                     fastify,
                     network,
-                    '', // poolAddress not needed for basic quote
-                    base,
-                    quote,
+                    poolAddress || '', // Use provided poolAddress or empty string
+                    baseToken,
+                    quoteToken,
                     amountNumber,
                     side,
+                    slippagePct,
                 );
 
                 // Get Ethereum instance for gas price
@@ -266,8 +271,8 @@ const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
                     network,
                     timestamp: startTimestamp,
                     latency: Date.now() - startTimestamp,
-                    base,
-                    quote,
+                    baseToken,
+                    quoteToken,
                     amount,
                     expectedAmount: quoteResult.quote.estimatedAmountOut.toString(),
                     price: (quoteResult.quote.estimatedAmountOut / quoteResult.quote.estimatedAmountIn).toString(),

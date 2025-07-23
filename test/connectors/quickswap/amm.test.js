@@ -9,11 +9,11 @@ const CONNECTOR = 'quickswap';
 const AMM_PROTOCOL = 'amm';
 const CLMM_PROTOCOL = 'clmm';
 const NETWORK = 'polygon';
-const BASE_TOKEN = 'WMATIC';
+const BASE_TOKEN = 'WPOL';
 const QUOTE_TOKEN = 'USDC';
 const ALI_TOKEN = 'ALI';
-const TEST_AMM_POOL = '0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827'; // WMATIC-USDC V2
-const TEST_CLMM_POOL = '0x4b9bce8888bee8b252a7d599aa534c2fab9a07a5'; // ALI-WMATIC V3
+const TEST_AMM_POOL = '0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827'; // WPOL-USDC V2
+const TEST_CLMM_POOL = '0x24Bf2Ee2e09477082d1DDf2F0603baa460B3F5f3'; // ALI-WPOL V3
 const TEST_WALLET = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 // Mock API calls (axios.get and axios.post)
@@ -71,7 +71,7 @@ describe('QuickSwap AMM Tests (Polygon Network)', () => {
     });
 
     describe('AMM (V2) Pool Info Endpoint', () => {
-        test('returns and validates pool info for WMATIC-USDC', async () => {
+        test('returns and validates pool info for WPOL-USDC', async () => {
             // Load mock response
             const mockResponse = loadMockResponse('amm-pool-info');
 
@@ -148,7 +148,7 @@ describe('QuickSwap AMM Tests (Polygon Network)', () => {
     });
 
     describe('AMM (V2) Quote Swap Endpoint', () => {
-        test('returns valid quote for WMATIC-USDC swap', async () => {
+        test('returns valid quote for WPOL-USDC swap', async () => {
             // Load mock response
             const mockResponse = loadMockResponse('amm-quote-swap');
 
@@ -229,7 +229,7 @@ describe('QuickSwap AMM Tests (Polygon Network)', () => {
     });
 
     describe('CLMM (V3) Quote Swap Endpoint', () => {
-        test('returns valid quote for ALI-WMATIC swap', async () => {
+        test('returns valid quote for ALI-WPOL swap', async () => {
             // Load mock response
             const mockResponse = loadMockResponse('clmm-quote-swap');
 
