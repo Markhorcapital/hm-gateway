@@ -19,6 +19,41 @@ import { formatTokenAmount } from '../../uniswap/uniswap.utils';
 
 import { getQuickSwapClmmQuote } from './quoteSwap';
 
+/**
+ * Safely convert a decimal amount to Wei, avoiding scientific notation issues
+ * @param amount The decimal amount to convert
+ * @param decimals The token decimals
+ * @returns BigNumber representation in Wei
+ */
+function convertToWeiSafely(amount: number, decimals: number): BigNumber {
+    try {
+        // Handle the conversion using string manipulation to avoid scientific notation
+        const amountStr = amount.toString();
+        
+        if (amountStr.includes('e') || amountStr.includes('E')) {
+            // Handle scientific notation by using parseFloat and then converting
+            const normalizedAmount = parseFloat(amountStr);
+            return utils.parseUnits(normalizedAmount.toFixed(decimals), decimals);
+        }
+        
+        // Handle decimal conversion properly for BigNumber
+        if (amountStr.includes('.')) {
+            const [wholePart, decimalPart] = amountStr.split('.');
+            const paddedDecimalPart = decimalPart.padEnd(decimals, '0').slice(0, decimals);
+            const fullNumber = wholePart + paddedDecimalPart;
+            return BigNumber.from(fullNumber);
+        } else {
+            // No decimal part, just multiply by 10^decimals
+            const multiplier = BigNumber.from(10).pow(decimals);
+            return BigNumber.from(amountStr).mul(multiplier);
+        }
+    } catch (error) {
+        logger.error(`Error converting to Wei safely: ${error}, amount: ${amount}, decimals: ${decimals}`);
+        // Fallback to utils.parseUnits which handles most cases
+        return utils.parseUnits(amount.toFixed(decimals), decimals);
+    }
+}
+
 async function executeSwap(
     fastify: any,
     network: string,
@@ -82,12 +117,12 @@ async function executeSwap(
             if (side === 'SELL') {
                 amountNeeded = quote.inputAmount.quotient;
             } else {
-                // For BUY side, we need the maximum input amount
-                amountNeeded = BigNumber.from(Math.floor(quote.maxAmountIn * Math.pow(10, quote.inputToken.decimals)).toString());
+                // For BUY side, we need the maximum input amount - use safe conversion
+                amountNeeded = convertToWeiSafely(quote.maxAmountIn, quote.inputToken.decimals);
             }
         } else if (quote.estimatedAmountIn) {
-            // Fallback to estimatedAmountIn if inputAmount.quotient is not available
-            const inputAmountWei = BigNumber.from(Math.floor(quote.estimatedAmountIn * Math.pow(10, quote.inputToken.decimals)).toString());
+            // Fallback to estimatedAmountIn if inputAmount.quotient is not available - use safe conversion
+            const inputAmountWei = convertToWeiSafely(quote.estimatedAmountIn, quote.inputToken.decimals);
             amountNeeded = inputAmountWei;
         } else {
             throw new Error('Invalid quote structure: missing input amount information');
@@ -118,9 +153,9 @@ async function executeSwap(
         let wrapTxHash = null;
 
         // Handle ETH->WETH wrapping if needed
-        if (baseToken === 'ETH' && side === 'SELL') {
+        if (baseToken === 'POL' && side === 'SELL') {
             const quickswap = await QuickSwap.getInstance(network);
-            const wethToken = quickswap.getTokenBySymbol('WETH');
+            const wethToken = quickswap.getTokenBySymbol('WPOL');
             if (!wethToken) {
                 throw new Error('WETH token not found');
             }
@@ -156,14 +191,18 @@ async function executeSwap(
         // Prepare swap parameters for V3
         let inputAmount: BigNumber;
         let minOutputAmount: BigNumber;
+        let outputAmount: BigNumber;
 
         if (quote.inputAmount && quote.inputAmount.quotient && quote.minOutputAmount && quote.minOutputAmount.quotient) {
-            inputAmount = BigNumber.from(quote.inputAmount.quotient.toString());
-            minOutputAmount = BigNumber.from(quote.minOutputAmount.quotient.toString());
+            // Use the quotient values directly as they are already BigNumbers
+            inputAmount = utils.parseUnits(quote.inputAmount.quotient.toString(),0);
+            minOutputAmount = utils.parseUnits(quote.minOutputAmount.quotient.toString(),0);
+            outputAmount = convertToWeiSafely(quote.estimatedAmountOut.toString(),quote.inputToken.decimals);
         } else if (quote.estimatedAmountIn && quote.minAmountOut) {
-            // Fallback to estimatedAmountIn and minAmountOut
-            inputAmount = BigNumber.from(Math.floor(quote.estimatedAmountIn * Math.pow(10, quote.inputToken.decimals)).toString());
-            minOutputAmount = BigNumber.from(Math.floor(quote.minAmountOut * Math.pow(10, quote.outputToken.decimals)).toString());
+            // Fallback to estimatedAmountIn and minAmountOut with safe conversion
+            inputAmount = convertToWeiSafely(quote.estimatedAmountIn, quote.inputToken.decimals);
+            minOutputAmount = convertToWeiSafely(quote.minAmountOut, quote.outputToken.decimals);
+            outputAmount = convertToWeiSafely(quote.estimatedAmountOut,quote.inputToken.decimals);
         } else {
             throw new Error('Invalid quote structure: missing amount information for swap execution');
         }
@@ -205,10 +244,11 @@ async function executeSwap(
             const params = {
                 tokenIn: inputTokenAddress,
                 tokenOut: outputTokenAddress,
+                fee: 1000,
                 recipient: walletAddress,
                 deadline,
-                amountOut: minOutputAmount,
-                amountInMaximum: inputAmount,
+                amountOut: inputAmount,
+                amountInMaximum: outputAmount,
                 limitSqrtPrice: 0 // No price limit
             };
 
@@ -251,15 +291,17 @@ async function executeSwap(
             gasFee,
             feeTier: quote.feeTier,
         });
+        const txSignature = wrapTxHash
+        ? `swap:${receipt.transactionHash},wrap:${wrapTxHash}`
+        : receipt.transactionHash;
 
         return {
-            signature: receipt.transactionHash,
+            signature: txSignature,
             totalInputSwapped: actualInputAmount,
             totalOutputSwapped: actualOutputAmount,
             fee: gasFee,
             baseTokenBalanceChange,
-            quoteTokenBalanceChange,
-            wrapTxHash, // Include wrap transaction hash if ETH was wrapped
+            quoteTokenBalanceChange
         };
     } catch (error) {
         logger.error('QuickSwap CLMM swap execution failed', {

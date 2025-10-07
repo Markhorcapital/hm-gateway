@@ -221,7 +221,7 @@ async function quoteClmmSwap(
         }
 
         // For Algebra V3, we use dynamic fees, so just use the default fee tier
-        let feeTier = 3000; // Default to 0.3%
+        let feeTier = 1000; // Default to 0.3%
 
         // Use V3 quoter to get quote
         let quotedAmount: BigNumber;
@@ -310,7 +310,7 @@ async function quoteClmmSwap(
             outputAmount: { quotient: quotedAmount, currency: outputToken },
             minOutputAmount: { quotient: BigNumber.from(Math.floor(minOutputAmount * Math.pow(10, outputToken.decimals)).toString()), currency: outputToken },
             estimatedAmountIn: inputAmount,
-            estimatedAmountOut: outputAmount,
+            estimatedAmountOut: (outputAmount * (1 + slippagePercent)),
             minAmountOut: minOutputAmount,
             maxAmountIn: maxInputAmount,
             feeTier,

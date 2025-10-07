@@ -270,10 +270,10 @@ export function getSpender(network: string, connectorName: string): string {
     return getUniswapV2RouterAddress(network);
   }
 
-  // Check for CLMM (V3) connector pattern
-  if (connectorName.includes('/clmm')) {
-    return getUniswapV3NftManagerAddress(network);
-  }
+  // // Check for CLMM (V3) connector pattern
+  // if (connectorName.includes('/clmm')) {
+  //   return getUniswapV3NftManagerAddress(network);
+  // }
 
   // For regular uniswap connector or any other case, use the V3 Smart Order Router
   return getUniswapV3SmartOrderRouterAddress(network);

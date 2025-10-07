@@ -122,6 +122,21 @@ export const getQuickSwapV3FactoryAddress = (network: string): string => {
     return addresses.quickswapV3FactoryAddress;
 };
 
+export function getQuickSwapSpender(network: string, connectorName: string): string {
+    // Check for AMM (V2) connector pattern
+    if (connectorName.includes('/amm')) {
+      return getQuickSwapV2RouterAddress(network);
+    }
+  
+    // // Check for CLMM (V3) connector pattern
+    // if (connectorName.includes('/clmm')) {
+    //   return getQuickSwapV3NftManagerAddress(network);
+    // }
+  
+    // For regular uniswap connector or any other case, use the V3 Smart Order Router
+    return getQuickSwapV3SmartOrderRouterAddress(network);
+  }
+
 // Re-export Uniswap ABIs since QuickSwap uses the same interfaces
 export {
     IUniswapV2PairABI,
