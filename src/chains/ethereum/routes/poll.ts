@@ -126,6 +126,7 @@ export async function pollEthereumTransaction(
       txBlock,
       txStatus,
       txData: toEthereumTransactionResponse(txData),
+      txReceipt,
       fee: null, // Optional field
     };
   } catch (error) {

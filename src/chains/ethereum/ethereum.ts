@@ -513,67 +513,67 @@ export class Ethereum {
   private static WRAPPED_ADDRESSES: {
     [key: string]: { address: string; symbol: string; nativeSymbol: string };
   } = {
-    mainnet: {
-      address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-    arbitrum: {
-      address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-    optimism: {
-      address: '0x4200000000000000000000000000000000000006',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-    base: {
-      address: '0x4200000000000000000000000000000000000006',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-    sepolia: {
-      address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-    polygon: {
-      address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
-      symbol: 'WETH',
-      nativeSymbol: 'MATIC',
-    },
-    bsc: {
-      address: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
-      symbol: 'WBNB',
-      nativeSymbol: 'BNB',
-    },
-    avalanche: {
-      address: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
-      symbol: 'WAVAX',
-      nativeSymbol: 'AVAX',
-    },
-    celo: {
-      address: '0x471EcE3750Da237f93B8E339c536989b8978a438',
-      symbol: 'WCELO',
-      nativeSymbol: 'CELO',
-    },
-    blast: {
-      address: '0x4300000000000000000000000000000000000004',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-    zora: {
-      address: '0x4200000000000000000000000000000000000006',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-    worldchain: {
-      address: '0x4300000000000000000000000000000000000004',
-      symbol: 'WETH',
-      nativeSymbol: 'ETH',
-    },
-  };
+      mainnet: {
+        address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+      arbitrum: {
+        address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+      optimism: {
+        address: '0x4200000000000000000000000000000000000006',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+      base: {
+        address: '0x4200000000000000000000000000000000000006',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+      sepolia: {
+        address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+      polygon: {
+        address: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
+        symbol: 'WETH',
+        nativeSymbol: 'MATIC',
+      },
+      bsc: {
+        address: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+        symbol: 'WBNB',
+        nativeSymbol: 'BNB',
+      },
+      avalanche: {
+        address: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+        symbol: 'WAVAX',
+        nativeSymbol: 'AVAX',
+      },
+      celo: {
+        address: '0x471EcE3750Da237f93B8E339c536989b8978a438',
+        symbol: 'WCELO',
+        nativeSymbol: 'CELO',
+      },
+      blast: {
+        address: '0x4300000000000000000000000000000000000004',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+      zora: {
+        address: '0x4200000000000000000000000000000000000006',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+      worldchain: {
+        address: '0x4300000000000000000000000000000000000004',
+        symbol: 'WETH',
+        nativeSymbol: 'ETH',
+      },
+    };
 
   /**
    * Get the wrapped token (WETH, WBNB, etc.) address for the current network

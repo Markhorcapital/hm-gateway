@@ -10,6 +10,7 @@ import {
 import { bigNumberWithDecimalToStr } from '../../../services/base';
 import { logger } from '../../../services/logger';
 import { Ethereum, TokenInfo } from '../ethereum';
+import { getQuickSwapSpender } from '../../../connectors/quickswap/quickswap.contracts';
 
 // Helper function to convert transaction to a format matching the CustomTransactionSchema
 const toEthereumTransaction = (transaction: ethers.Transaction) => {
@@ -38,7 +39,10 @@ export async function approveEthereumToken(
   let spenderAddress: string;
   try {
     // Check if the spender parameter is a connector name
-    if (spender.includes('/') || spender === 'uniswap') {
+    if(spender === 'quickswap/clmm' || spender === 'quickswap/amm'){
+      spenderAddress = getQuickSwapSpender(network, spender);
+
+    } else if (spender.includes('/') || spender === 'uniswap') {
       logger.info(`Looking up spender address for connector: ${spender}`);
       spenderAddress = getSpender(network, spender);
       logger.info(

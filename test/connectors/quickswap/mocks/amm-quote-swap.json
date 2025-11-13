@@ -1,0 +1,13 @@
+{
+    "base": "WPOL",
+    "quote": "USDC",
+    "amount": "1",
+    "side": "SELL",
+    "network": "polygon",
+    "expectedAmount": "0.85",
+    "price": "0.85",
+    "poolAddress": "0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827",
+    "gasPrice": "30000000000",
+    "gasLimit": 150000,
+    "gasCost": "0.0045"
+}

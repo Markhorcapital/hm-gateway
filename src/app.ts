@@ -19,6 +19,7 @@ import { configRoutes } from './config/config.routes';
 import { connectorsRoutes } from './connectors/connector.routes';
 import { jupiterRoutes } from './connectors/jupiter/jupiter.routes';
 import { meteoraRoutes } from './connectors/meteora/meteora.routes';
+import { quickswapRoutes } from './connectors/quickswap/quickswap.routes';
 import { raydiumRoutes } from './connectors/raydium/raydium.routes';
 import { uniswapRoutes } from './connectors/uniswap/uniswap.routes';
 import { getHttpsOptions } from './https';
@@ -90,6 +91,14 @@ const swaggerOptions = {
         name: 'uniswap/clmm',
         description: 'Uniswap V3 pool connector (Ethereum)',
       },
+      {
+        name: 'quickswap/amm',
+        description: 'QuickSwap V2 pool connector (Polygon and other EVM chains)',
+      },
+      {
+        name: 'quickswap/clmm',
+        description: 'QuickSwap V3 pool connector (Polygon and other EVM chains)',
+      },
     ],
     components: {
       parameters: {
@@ -125,15 +134,15 @@ const configureGatewayServer = () => {
   const server = Fastify({
     logger: ConfigManagerV2.getInstance().get('server.fastifyLogs')
       ? {
-          level: 'info',
-          transport: {
-            target: 'pino-pretty',
-            options: {
-              translateTime: 'HH:MM:ss Z',
-              ignore: 'pid,hostname',
-            },
+        level: 'info',
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            translateTime: 'HH:MM:ss Z',
+            ignore: 'pid,hostname',
           },
-        }
+        },
+      }
       : false,
     https: devMode ? undefined : getHttpsOptions(),
   });
@@ -208,6 +217,10 @@ const configureGatewayServer = () => {
     app.register(raydiumRoutes.amm, { prefix: '/connectors/raydium/amm' });
 
     app.register(uniswapRoutes, { prefix: '/connectors/uniswap' });
+
+    // QuickSwap routes
+    app.register(quickswapRoutes.amm, { prefix: '/connectors/quickswap/amm' });
+    app.register(quickswapRoutes.clmm, { prefix: '/connectors/quickswap/clmm' });
 
     // Register chain routes
     app.register(solanaRoutes, { prefix: '/chains/solana' });

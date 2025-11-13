@@ -84,6 +84,7 @@ export const PollResponseSchema = Type.Object(
     txBlock: Type.Union([Type.Number(), Type.Null()]),
     txStatus: Type.Number(),
     txData: Type.Union([Type.Record(Type.String(), Type.Any()), Type.Null()]),
+    txReceipt: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Any()), Type.Null()])),
     fee: Type.Union([Type.Number(), Type.Null()]),
     error: Type.Optional(Type.String()),
   },

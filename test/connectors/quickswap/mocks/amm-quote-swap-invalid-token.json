@@ -1,0 +1,5 @@
+{
+    "error": "Token not found",
+    "message": "Token NONEXISTENT not found in polygon network",
+    "code": 404
+}

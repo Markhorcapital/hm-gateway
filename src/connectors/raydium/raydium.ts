@@ -85,7 +85,7 @@ export class Raydium {
 
       logger.info(
         'Raydium initialized' +
-          (walletAddress ? ` with wallet: ${walletAddress}` : 'with no wallet'),
+        (walletAddress ? ` with wallet: ${walletAddress}` : 'with no wallet'),
       );
     } catch (error) {
       logger.error('Raydium initialization failed:', error);
@@ -255,9 +255,9 @@ export class Raydium {
     poolAddress: string,
   ): Promise<
     | [
-        ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm,
-        AmmV4Keys | AmmV5Keys,
-      ]
+      ApiV3PoolInfoStandardItem | ApiV3PoolInfoStandardItemCpmm,
+      AmmV4Keys | AmmV5Keys,
+    ]
     | null
   > {
     try {

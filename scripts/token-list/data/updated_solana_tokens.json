@@ -1668,9 +1668,9 @@
   {
     "chainId": 101,
     "name": "Artificial Liquid Intelligence",
-    "symbol": "ali",
+    "symbol": "ALI",
     "address": "9wvorGtBJ8gyLorFTmwXWcymPoGVUBn6MRzHwFpCdCeC",
-    "decimals": 9
+    "decimals": 8
   },
   {
     "chainId": 101,

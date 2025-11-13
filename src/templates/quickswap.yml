@@ -1,0 +1,60 @@
+# Global settings for QuickSwap
+# How much the execution price is allowed to move unfavorably
+allowedSlippage: '2/100'
+
+# For each swap, the maximum number of hops to consider
+maximumHops: 4
+
+# Network-specific pool configurations
+networks:
+  # Polygon mainnet - Primary QuickSwap network
+  polygon:
+    # AMM (QuickSwap V2) pools for Polygon
+    amm:
+      WPOL-USDC: '0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827'
+      WPOL-USDT: '0xF604C82D6BaB756997f8e654f70B2f3A3D8C81fE'
+      WPOL-WETH: '0xadbF1854e5883eB8aa7BAf50705338739e558E5b'
+      QUICK-WPOL: '0x9dd1d70c9420e00D2B0c8Dd8E0eEeFb6d43eBa2c'
+      USDC-USDT: '0x2cF7252e74036d1Da831d11089D326296e64a728'
+      WETH-USDC: '0x853Ee4b2A13f8a742d64C8F088bE7bA2131f670d'
+    
+    # CLMM (QuickSwap V3) pools for Polygon  
+    clmm:
+      WPOL-USDC: '0xa374094527e1673a86de625aa59517c5de346d32'
+      WPOL-USDT: '0xb8d00c66accdc01e78ffd22dc8f31d35d9c2b6ea'
+      WPOL-WETH: '0x479e1b71a702a595e19b6d5932cd5c863ab57ee0'
+      USDC-USDT: '0xe7e0eb9f6bcccfe847fdf62a3628319a092f11a2'
+      ALI-WPOL: '0x24Bf2Ee2e09477082d1DDf2F0603baa460B3F5f3'
+
+  # Mumbai testnet
+  mumbai:
+    # AMM (QuickSwap V2) pools for Mumbai testnet
+    amm:
+      WPOL-USDC: '0x9Bb1bb1D1ee2E5CECd3b25fb39e8BA7E3e6d28Bd'
+      WPOL-USDT: '0x604229c960e5CACF2aaEAc8Be68Ac07BA9dF81c3'
+    # Note: V3 pools may not be available on testnet
+    clmm: {}
+
+  # Dogechain
+  dogechain:
+    # AMM (QuickSwap V2) pools for Dogechain
+    amm:
+      WDOGE-USDC: '0x420000000000000000000000000000000000000042'
+      WDOGE-USDT: '0x420000000000000000000000000000000000000043'
+    
+    # CLMM (QuickSwap V3) pools for Dogechain
+    clmm:
+      WDOGE-USDC: '0x420000000000000000000000000000000000000044'
+
+
+
+  # Manta Pacific
+  manta:
+    # AMM (QuickSwap V2) pools for Manta Pacific
+    amm:
+      WETH-USDC: '0x2B8C610F3fC6F883817637d15514293565C3d08C'
+      WETH-MANTA: '0x67A1f4A939b477A6b7c5BF94D97E45dE87E608eF'
+    
+    # CLMM (QuickSwap V3) pools for Manta Pacific
+    clmm:
+      WETH-USDC: '0x83a1bf18d8067c2F3dd6ee0E9F8C7e5F1e8C1854' 

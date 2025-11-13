@@ -1,0 +1,14 @@
+{
+    "network": "polygon",
+    "timestamp": 1642680000000,
+    "latency": 100,
+    "base": "WPOL",
+    "quote": "USDC",
+    "amount": "1.0",
+    "expectedAmount": "0.75",
+    "price": "0.75",
+    "gasPrice": 25.5,
+    "gasPriceToken": "MATIC",
+    "gasLimit": 150000,
+    "gasCost": "0.003825"
+}

@@ -12143,5 +12143,12 @@
     "symbol": "٨",
     "address": "0xd9e658caed24fb0486e92f0f1702f77a712790da",
     "decimals": 0
+  },
+  {
+    "chainId": 137,
+    "name": "Artificial Liquid Intelligence",
+    "symbol": "ALI",
+    "address": "0xbfc70507384047aa74c29cdc8c5cb88d0f7213ac",
+    "decimals": 18
   }
 ]

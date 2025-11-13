@@ -24,6 +24,10 @@ configurations:
     configurationPath: meteora.yml
     schemaPath: meteora-schema.json
 
+  $namespace quickswap:
+    configurationPath: quickswap.yml
+    schemaPath: quickswap-schema.json
+
   $namespace raydium:
     configurationPath: raydium.yml
     schemaPath: raydium-schema.json

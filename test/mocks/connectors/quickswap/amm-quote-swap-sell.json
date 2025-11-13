@@ -1,0 +1,9 @@
+{
+    "amountIn": "1000000000000000000",
+    "amountOut": "950000000",
+    "priceImpact": "0.05",
+    "fee": "3000000000000000",
+    "route": [
+        "0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827"
+    ]
+}
