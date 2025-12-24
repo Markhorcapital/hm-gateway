@@ -30,13 +30,52 @@ import {
   getUniswapV3FactoryAddress,
   getUniswapV2FactoryAddress,
   getUniswapV3QuoterV2ContractAddress,
+  getUniswapV4PoolManagerAddress,
+  getUniswapV4StateViewAddress,
+  getUniswapV4QuoterAddress,
+  IV4QuoterABI,
+  IStateViewABI,
 } from './uniswap.contracts';
 
 // Common fee tiers for V3
 const V3_FEE_TIERS = [FeeAmount.LOWEST, FeeAmount.LOW, FeeAmount.MEDIUM, FeeAmount.HIGH];
 
+// V4 common configurations
+// Default fee: 3000 (0.3%), tickSpacing: 60, no hooks
+const V4_DEFAULT_FEE = 3000; // 0.3%
+const V4_DEFAULT_TICK_SPACING = 60;
+const V4_NO_HOOKS = '0x0000000000000000000000000000000000000000';
+
+// V4 Universal Router commands and actions
+const V4_COMMANDS = {
+  V4_SWAP: 0x10, // V4 swap command
+};
+
+const V4_ACTIONS = {
+  SWAP_EXACT_IN_SINGLE: 0x06,
+  SWAP_EXACT_OUT_SINGLE: 0x08,
+  SETTLE_ALL: 0x0c,
+  TAKE_ALL: 0x0f,
+};
+
+export interface V4PoolKey {
+  currency0: string;
+  currency1: string;
+  fee: number;
+  tickSpacing: number;
+  hooks: string;
+}
+
+export interface V4QuoteResult {
+  poolKey: V4PoolKey;
+  zeroForOne: boolean;
+  amountIn: CurrencyAmount<Currency>;
+  amountOut: CurrencyAmount<Currency>;
+  priceImpact: number;
+}
+
 export interface UniversalRouterQuoteResult {
-  trade: RouterTrade<Currency, Currency, TradeType>;
+  trade: RouterTrade<Currency, Currency, TradeType> | null;
   route: string[];
   routePath: string;
   priceImpact: number;
@@ -49,6 +88,9 @@ export interface UniversalRouterQuoteResult {
     value: string;
     to: string;
   };
+  // V4-specific fields
+  v4Quote?: V4QuoteResult;
+  isV4?: boolean;
 }
 
 export class UniversalRouterService {
@@ -94,11 +136,34 @@ export class UniversalRouterService {
     logger.info(`[UniversalRouter] Recipient: ${options.recipient}`);
     logger.info(`[UniversalRouter] Slippage: ${options.slippageTolerance.toSignificant()}%`);
 
-    const protocols = options.protocols || [Protocol.V2, Protocol.V3];
+    const protocols = options.protocols || [Protocol.V4];
     logger.info(`[UniversalRouter] Protocols to check: ${protocols.join(', ')}`);
     const routes: any[] = [];
+    let v4Quote: V4QuoteResult | null = null;
 
     // Try to find routes through each protocol
+    if (protocols.includes(Protocol.V4)) {
+      logger.info(`[UniversalRouter] Searching for V4 routes...`);
+      try {
+        const v4Result = await this.findV4Route(tokenIn, tokenOut, amount, tradeType);
+        if (v4Result) {
+          logger.info(
+            `[UniversalRouter] Found V4 route: ${v4Result.amountIn.toExact()} -> ${v4Result.amountOut.toExact()}`,
+          );
+          v4Quote = v4Result;
+          routes.push({
+            routev4: v4Result,
+            inputAmount: v4Result.amountIn,
+            outputAmount: v4Result.amountOut,
+          });
+        } else {
+          logger.info(`[UniversalRouter] No V4 route found`);
+        }
+      } catch (error) {
+        logger.warn(`[UniversalRouter] Failed to find V4 route: ${error.message}`);
+      }
+    }
+
     if (protocols.includes(Protocol.V3)) {
       logger.info(`[UniversalRouter] Searching for V3 routes...`);
       try {
@@ -150,7 +215,45 @@ export class UniversalRouterService {
     // Pick the best route (for now, just use the first one)
     const bestRoute = routes[0];
 
-    // Create RouterTrade based on the best route
+    // Handle V4 route separately (V4 uses different swap mechanism)
+    if (bestRoute.routev4 && v4Quote) {
+      logger.info(`[UniversalRouter] Using V4 route - building V4 swap parameters...`);
+      const { calldata, value } = await this.buildV4SwapCalldata(
+        v4Quote,
+        tokenIn,
+        tokenOut,
+        amount,
+        tradeType,
+        options,
+      );
+
+      const result = {
+        trade: null, // V4 doesn't use RouterTrade
+        route: [tokenIn.symbol || tokenIn.address, tokenOut.symbol || tokenOut.address],
+        routePath: `${tokenIn.symbol || tokenIn.address} -> ${tokenOut.symbol || tokenOut.address}`,
+        priceImpact: v4Quote.priceImpact,
+        estimatedGasUsed: BigNumber.from(0),
+        estimatedGasUsedQuoteToken: CurrencyAmount.fromRawAmount(tokenOut, '0'),
+        quote: v4Quote.amountOut,
+        quoteGasAdjusted: v4Quote.amountOut,
+        methodParameters: {
+          calldata,
+          value,
+          to: UNIVERSAL_ROUTER_ADDRESS(UniversalRouterVersion.V2_0, this.chainId),
+        },
+        v4Quote,
+        isV4: true,
+      };
+
+      logger.info(`[UniversalRouter] V4 quote generation complete`);
+      logger.info(`[UniversalRouter] Input: ${v4Quote.amountIn.toExact()} ${tokenIn.symbol}`);
+      logger.info(`[UniversalRouter] Output: ${v4Quote.amountOut.toExact()} ${tokenOut.symbol}`);
+      logger.info(`[UniversalRouter] Price Impact: ${result.priceImpact}%`);
+
+      return result;
+    }
+
+    // Create RouterTrade based on the best route (V2 or V3)
     let bestTrade: RouterTrade<Currency, Currency, TradeType>;
 
     if (bestRoute.routev3) {
@@ -325,6 +428,275 @@ export class UniversalRouterService {
     } catch (error) {
       return null;
     }
+  }
+
+  /**
+   * Find V4 route using pool key and quoter
+   */
+  private async findV4Route(
+    tokenIn: Token,
+    tokenOut: Token,
+    amount: CurrencyAmount<Currency>,
+    tradeType: TradeType,
+  ): Promise<V4QuoteResult | null> {
+    try {
+      // Determine token order (currency0 < currency1)
+      const token0Address =
+        tokenIn.address.toLowerCase() < tokenOut.address.toLowerCase() ? tokenIn.address : tokenOut.address;
+      const token1Address =
+        tokenIn.address.toLowerCase() < tokenOut.address.toLowerCase() ? tokenOut.address : tokenIn.address;
+      const zeroForOne = tokenIn.address.toLowerCase() < tokenOut.address.toLowerCase();
+
+      // Create pool key with default values
+      // In production, these should be discovered from on-chain data or configuration
+      const poolKey: V4PoolKey = {
+        currency0: token0Address,
+        currency1: token1Address,
+        fee: V4_DEFAULT_FEE,
+        tickSpacing: V4_DEFAULT_TICK_SPACING,
+        hooks: '0x121f94835dAB08ebaF084809a97e525B69e400Cc',
+      };
+
+      // Get quote from V4 Quoter
+      const quoterAddress = getUniswapV4QuoterAddress(this.network);
+      const quoterContract = new Contract(quoterAddress, IV4QuoterABI, this.provider);
+
+      const hookData = '0x00'; // Empty for no hooks
+      const exactAmount = BigNumber.from(amount.quotient.toString());
+
+      let amountOut: BigNumber;
+      let gasEstimate: BigNumber;
+      let amountIn: CurrencyAmount<Currency>;
+      let amountOutCurrency: CurrencyAmount<Currency>;
+      console.log('tradeType', tradeType);
+      if (tradeType === TradeType.EXACT_INPUT) {
+        try {
+          // V4 Quoter uses struct parameter (IV4Quoter.QuoteExactSingleParams) and returns (amountOut, gasEstimate)
+          // The struct contains: poolKey, zeroForOne, exactAmount, hookData
+          const quoteParams = {
+            poolKey: {
+              currency0: poolKey.currency0,
+              currency1: poolKey.currency1,
+              fee: poolKey.fee,
+              tickSpacing: poolKey.tickSpacing,
+              hooks: poolKey.hooks,
+            },
+            zeroForOne,
+            exactAmount,
+            hookData,
+          };
+          const quoteResult = await quoterContract.callStatic.quoteExactInputSingle(quoteParams);
+
+          amountOut = quoteResult.amountOut;
+          gasEstimate = quoteResult.gasEstimate;
+          logger.info(
+            `[UniversalRouter] V4 quote successful: ${amountOut.toString()} out, gas: ${gasEstimate.toString()}`,
+          );
+        } catch (error) {
+          logger.warn(`[UniversalRouter] V4 quote failed: ${error.message}`);
+          if (error.error && error.error.data) {
+            logger.warn(`[UniversalRouter] V4 quote error data: ${error.error.data}`);
+          }
+          return null;
+        }
+
+        // Calculate amounts based on trade type
+
+        amountIn = amount;
+        amountOutCurrency = CurrencyAmount.fromRawAmount(tokenOut, amountOut.toString());
+      } else {
+        try {
+          const quoteParams = {
+            poolKey: {
+              currency0: poolKey.currency0,
+              currency1: poolKey.currency1,
+              fee: poolKey.fee,
+              tickSpacing: poolKey.tickSpacing,
+              hooks: poolKey.hooks,
+            },
+            zeroForOne,
+            exactAmount,
+            hookData,
+          };
+          const quoteResult = await quoterContract.callStatic.quoteExactOutputSingle(quoteParams);
+          amountOut = quoteResult.amountIn;
+          gasEstimate = quoteResult.gasEstimate;
+          amountOutCurrency = amount;
+          // For exact output, we'd need to reverse quote - for now, use the quoted amount
+          // In production, you'd call quoteExactOutputSingle
+          amountIn = CurrencyAmount.fromRawAmount(tokenIn, amountOut.toString());
+        } catch (error) {
+          logger.warn(`[UniversalRouter] V4 quote failed: ${error.message}`);
+          if (error.error && error.error.data) {
+            logger.warn(`[UniversalRouter] V4 quote error data: ${error.error.data}`);
+          }
+          return null;
+        }
+      }
+      // Calculate simple price impact (can be improved)
+      const priceImpact = 0; // V4 price impact calculation would require more complex logic
+
+      return {
+        poolKey,
+        zeroForOne,
+        amountIn,
+        amountOut: amountOutCurrency,
+        priceImpact,
+      };
+    } catch (error) {
+      logger.warn(`[UniversalRouter] V4 route finding error: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Build V4 swap calldata for Universal Router
+   */
+  private async buildV4SwapCalldata(
+    v4Quote: V4QuoteResult,
+    _tokenIn: Token,
+    _tokenOut: Token,
+    _amount: CurrencyAmount<Currency>,
+    _tradeType: TradeType,
+    options: {
+      slippageTolerance: Percent;
+      deadline: number;
+      recipient: string;
+    },
+  ): Promise<{ calldata: string; value: string }> {
+    const { utils } = await import('ethers');
+    const { defaultAbiCoder, solidityPack } = utils;
+
+    const poolKey = v4Quote.poolKey;
+    const zeroForOne = v4Quote.zeroForOne;
+
+    // Determine hook data
+    let hookData = '0x';
+    if (poolKey.hooks === '0x0000000000000000000000000000000000000000') {
+      hookData = '0x';
+    } else {
+      // Encode user address for hooks that require it
+      hookData = defaultAbiCoder.encode(['address'], [options.recipient]);
+    }
+
+    // Calculate amounts with slippage
+    const slippageBps = Math.floor(parseFloat(options.slippageTolerance.toSignificant(6)) * 100);
+    const multiplier = 10000 - slippageBps;
+    // Convert JSBI to BigNumber for calculation
+    let inputs = [];
+    if (_tradeType === TradeType.EXACT_INPUT) {
+      const amountOutBN = BigNumber.from(v4Quote.amountOut.quotient.toString());
+      const amountOutMinimum = amountOutBN.mul(BigNumber.from(multiplier)).div(10000);
+
+      const inputAmount = BigNumber.from(v4Quote.amountIn.quotient.toString());
+
+      // Encode V4Router actions
+      const actions = solidityPack(
+        ['uint8', 'uint8', 'uint8'],
+        [V4_ACTIONS.SWAP_EXACT_IN_SINGLE, V4_ACTIONS.SETTLE_ALL, V4_ACTIONS.TAKE_ALL],
+      );
+
+      // Prepare parameters array for the three actions
+      const params = [
+        // SWAP_EXACT_IN_SINGLE parameters
+        defaultAbiCoder.encode(
+          [
+            `tuple(
+            tuple(address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) poolKey,
+            bool zeroForOne,
+            uint128 amountIn,
+            uint128 amountOutMinimum,
+            bytes hookData
+          )`,
+          ],
+          [
+            {
+              poolKey: poolKey,
+              zeroForOne: zeroForOne,
+              amountIn: inputAmount,
+              amountOutMinimum: amountOutMinimum,
+              hookData: hookData,
+            },
+          ],
+        ),
+        // SETTLE_ALL parameters (currency0, amountIn)
+        defaultAbiCoder.encode(
+          ['address', 'uint256'],
+          [zeroForOne ? poolKey.currency0 : poolKey.currency1, inputAmount],
+        ),
+        // TAKE_ALL parameters (currency1, minAmountOut)
+        defaultAbiCoder.encode(
+          ['address', 'uint256'],
+          [zeroForOne ? poolKey.currency1 : poolKey.currency0, amountOutMinimum],
+        ),
+      ];
+
+      // Create inputs array for Universal Router
+      inputs = [defaultAbiCoder.encode(['bytes', 'bytes[]'], [actions, params])];
+    } else {
+      const amountInBN = BigNumber.from(v4Quote.amountIn.quotient.toString());
+      const multiplier = 10000 + slippageBps;
+      const amountInMaximum = amountInBN.mul(BigNumber.from(multiplier)).div(10000);
+
+      const outputAmount = BigNumber.from(v4Quote.amountOut.quotient.toString());
+
+      const params = [
+        // SWAP_EXACT_OUT_SINGLE parameters
+        defaultAbiCoder.encode(
+          [
+            `tuple(
+            tuple(address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) poolKey,
+            bool zeroForOne,
+            uint128 amountOut,
+            uint128 amountInMaximum,
+            bytes hookData
+          )`,
+          ],
+          [
+            {
+              poolKey: poolKey,
+              zeroForOne: zeroForOne,
+              amountOut: outputAmount, // The exact output amount you want
+              amountInMaximum: amountInMaximum, // Maximum input you're willing to pay
+              hookData: hookData,
+            },
+          ],
+        ),
+        // SETTLE_ALL parameters (currency0, amountInMaximum)
+        defaultAbiCoder.encode(
+          ['address', 'uint256'],
+          [zeroForOne ? poolKey.currency0 : poolKey.currency1, amountInMaximum],
+        ),
+        // TAKE_ALL parameters (currency1, exactAmountOut)
+        defaultAbiCoder.encode(
+          ['address', 'uint256'],
+          [zeroForOne ? poolKey.currency1 : poolKey.currency0, outputAmount],
+        ),
+      ];
+      // Encode V4Router actions
+      const actions = solidityPack(
+        ['uint8', 'uint8', 'uint8'],
+        [V4_ACTIONS.SWAP_EXACT_OUT_SINGLE, V4_ACTIONS.SETTLE_ALL, V4_ACTIONS.TAKE_ALL],
+      );
+      inputs = [defaultAbiCoder.encode(['bytes', 'bytes[]'], [actions, params])];
+    }
+    // Build Universal Router execute call
+    const universalRouterABI = [
+      'function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable',
+    ];
+    const universalRouterAddress = UNIVERSAL_ROUTER_ADDRESS(UniversalRouterVersion.V2_0, this.chainId);
+    const universalRouterContract = new Contract(universalRouterAddress, universalRouterABI, this.provider);
+    const deadline = options.deadline || Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes default
+    const populatedTx = await universalRouterContract.populateTransaction.execute(
+      V4_COMMANDS.V4_SWAP,
+      inputs,
+      deadline,
+    );
+
+    return {
+      calldata: populatedTx.data || '0x',
+      value: populatedTx.value?.toString() || '0',
+    };
   }
 
   /**

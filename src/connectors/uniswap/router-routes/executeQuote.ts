@@ -36,10 +36,9 @@ async function executeQuote(
   logger.info(
     `Executing quote ${quoteId} for ${amount} ${inputToken.symbol} -> ${outputToken.symbol}${isHardwareWallet ? ' with hardware wallet' : ''}`,
   );
-
   // Check and approve allowance if needed - Universal Router V2 uses Permit2
   if (inputToken.address !== ethereum.nativeTokenSymbol) {
-    const requiredAllowance = BigNumber.from(quote.trade.inputAmount.quotient.toString());
+    const requiredAllowance = BigNumber.from(quote.v4Quote.amountIn.quotient.toString());
     const universalRouterAddress = quote.methodParameters.to;
 
     // Step 1: Check token allowance to Permit2
@@ -263,8 +262,8 @@ async function executeQuote(
   }
 
   // Calculate expected amounts from the trade
-  const expectedAmountIn = parseFloat(quote.trade.inputAmount.toExact());
-  const expectedAmountOut = parseFloat(quote.trade.outputAmount.toExact());
+  const expectedAmountIn = parseFloat(quote.v4Quote.amountIn.toExact());
+  const expectedAmountOut = parseFloat(quote.v4Quote.amountOut.toExact());
 
   // Use the new handleTransactionConfirmation helper
   const result = ethereum.handleTransactionConfirmation(

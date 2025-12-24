@@ -17,10 +17,12 @@ import { ethereumRoutes } from './chains/ethereum/ethereum.routes';
 import { solanaRoutes } from './chains/solana/solana.routes';
 import { configRoutes } from './config/config.routes';
 import { register0xRoutes } from './connectors/0x/0x.routes';
+import { aerodromeRoutes } from './connectors/aerodrome/aerodrome.routes';
 import { jupiterRoutes } from './connectors/jupiter/jupiter.routes';
 import { meteoraRoutes } from './connectors/meteora/meteora.routes';
 import { pancakeswapRoutes } from './connectors/pancakeswap/pancakeswap.routes';
 import { pancakeswapSolRoutes } from './connectors/pancakeswap-sol/pancakeswap-sol.routes';
+import { quickswapRoutes } from './connectors/quickswap/quickswap.routes';
 import { raydiumRoutes } from './connectors/raydium/raydium.routes';
 import { uniswapRoutes } from './connectors/uniswap/uniswap.routes';
 import { getHttpsOptions } from './https';
@@ -101,6 +103,10 @@ const swaggerOptions = {
       {
         name: '/connector/pancakeswap',
         description: 'PancakeSwap EVM connector endpoints',
+      },
+      {
+        name: '/connector/aerodrome',
+        description: 'Aerodrome connector endpoints',
       },
     ],
     components: {
@@ -268,6 +274,13 @@ const configureGatewayServer = () => {
 
     // PancakeSwap Solana routes
     app.register(pancakeswapSolRoutes, { prefix: '/connectors/pancakeswap-sol' });
+
+    // QuickSwap routes
+    app.register(quickswapRoutes.amm, { prefix: '/connectors/quickswap/amm' });
+    app.register(quickswapRoutes.clmm, { prefix: '/connectors/quickswap/clmm' });
+
+    // Aerodrome routes
+    app.register(aerodromeRoutes.clmm, { prefix: '/connectors/aerodrome/clmm' });
   };
 
   // Register routes on main server

@@ -1,6 +1,8 @@
 import { ethers, constants, utils } from 'ethers';
 import { FastifyPluginAsync, FastifyInstance } from 'fastify';
 
+import { getAerodromeV3SwapRouterAddress } from '#src/connectors/aerodrome/aerodrome.contracts';
+
 import { getSpender as pancakeswapSpender } from '../../../connectors/pancakeswap/pancakeswap.contracts';
 import { getSpender as uniswapSpender } from '../../../connectors/uniswap/uniswap.contracts';
 import { bigNumberWithDecimalToStr } from '../../../services/base';
@@ -47,6 +49,9 @@ export async function approveEthereumToken(
         logger.info(
           `Will approve token to Permit2, then grant Universal Router (${universalRouterAddress}) permission via Permit2`,
         );
+      } else if (spender === 'aerodrome/clmm') {
+        spenderAddress = getAerodromeV3SwapRouterAddress(network);
+        logger.info(`Will approve token to Aerodrome CLMM`);
       } else {
         logger.info(`Looking up spender address for connector: ${spender}`);
         spenderAddress = uniswapSpender(network, spender);

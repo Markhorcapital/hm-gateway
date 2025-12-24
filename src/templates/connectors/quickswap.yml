@@ -1,0 +1,7 @@
+# Global settings for QuickSwap
+# Default slippage percentage for swaps (0.5%)
+slippagePct: 0.5
+
+# For each swap, the maximum number of hops to consider
+maximumHops: 4
+

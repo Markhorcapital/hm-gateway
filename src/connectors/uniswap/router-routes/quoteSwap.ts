@@ -73,11 +73,15 @@ async function quoteSwap(
   let estimatedAmountIn: number;
   let estimatedAmountOut: number;
 
-  if (exactIn) {
+  // Handle V4 quotes (trade is null for V4)
+  if (quoteResult.isV4 && quoteResult.v4Quote) {
+    estimatedAmountIn = parseFloat(quoteResult.v4Quote.amountIn.toExact());
+    estimatedAmountOut = parseFloat(quoteResult.v4Quote.amountOut.toExact());
+  } else if (exactIn) {
     estimatedAmountIn = amount;
     estimatedAmountOut = parseFloat(quoteResult.quote.toExact());
   } else {
-    estimatedAmountIn = parseFloat(quoteResult.trade.inputAmount.toExact());
+    estimatedAmountIn = parseFloat(quoteResult.trade!.inputAmount.toExact());
     estimatedAmountOut = amount;
   }
 
@@ -92,6 +96,10 @@ async function quoteSwap(
       ? estimatedAmountOut / estimatedAmountIn // SELL: USDC per HBOT
       : estimatedAmountIn / estimatedAmountOut; // BUY: USDC per HBOT
   logger.info(`[quoteSwap] Price: ${price}, Min out: ${minAmountOut}, Max in: ${maxAmountIn}`);
+
+  // Get price impact (V4 has it in v4Quote, V2/V3 in trade)
+  const priceImpactPct =
+    quoteResult.isV4 && quoteResult.v4Quote ? quoteResult.v4Quote.priceImpact : quoteResult.priceImpact;
 
   // Cache the quote for execution
   // Store both quote and request data in the quote object for Uniswap
@@ -133,7 +141,7 @@ async function quoteSwap(
     amountIn: estimatedAmountIn,
     amountOut: estimatedAmountOut,
     price,
-    priceImpactPct: quoteResult.priceImpact,
+    priceImpactPct: priceImpactPct,
     minAmountOut,
     maxAmountIn,
     // Uniswap-specific fields

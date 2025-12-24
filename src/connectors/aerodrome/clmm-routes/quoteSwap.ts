@@ -1,6 +1,6 @@
 import { Token, CurrencyAmount, Percent, TradeType } from '@uniswap/sdk-core';
-import { Pool as V3Pool, SwapQuoter, SwapOptions, Route as V3Route, Trade as V3Trade } from '@uniswap/v3-sdk';
-import { BigNumber } from 'ethers';
+import { Pool as V3Pool, Route as V3Route, Trade as V3Trade } from '@uniswap/v3-sdk';
+import { BigNumber, Contract } from 'ethers';
 import { FastifyPluginAsync, FastifyInstance } from 'fastify';
 import JSBI from 'jsbi';
 
@@ -13,11 +13,13 @@ import {
 } from '../../../schemas/clmm-schema';
 import { logger } from '../../../services/logger';
 import { sanitizeErrorMessage } from '../../../services/sanitize';
-import { Uniswap } from '../uniswap';
-import { formatTokenAmount, parseFeeTier, getUniswapPoolInfo } from '../uniswap.utils';
+import { formatTokenAmount } from '../../uniswap/uniswap.utils';
+import { Aerodrome } from '../aerodrome';
+import { getAerodromeV3QuoterAddress, IAerodromeQuoterABI } from '../aerodrome.contracts';
 
-async function quoteClmmSwap(
-  uniswap: Uniswap,
+async function quoteAerodromeSwap(
+  aerodrome: Aerodrome,
+  network: string,
   poolAddress: string,
   baseToken: Token,
   quoteToken: Token,
@@ -26,13 +28,8 @@ async function quoteClmmSwap(
   slippagePct?: number,
 ): Promise<any> {
   try {
-    // Get the V3 pool - only use poolAddress
-    const pool = await uniswap.getV3Pool(
-      baseToken,
-      quoteToken,
-      undefined, // No fee amount needed, using poolAddress directly
-      poolAddress,
-    );
+    // Get the V3 pool and tickSpacing
+    const { pool, tickSpacing } = await aerodrome.getV3Pool(baseToken, quoteToken, poolAddress);
     if (!pool) {
       throw new Error(`Pool not found for ${baseToken.symbol}-${quoteToken.symbol}`);
     }
@@ -41,49 +38,71 @@ async function quoteClmmSwap(
     const exactIn = side === 'SELL';
     const [inputToken, outputToken] = exactIn ? [baseToken, quoteToken] : [quoteToken, baseToken];
 
-    // Create a route for the trade
-    const route = new V3Route([pool], inputToken, outputToken);
+    // Get quoter contract
+    const quoterAddress = getAerodromeV3QuoterAddress(network);
+    const quoterContract = new Contract(quoterAddress, IAerodromeQuoterABI, aerodrome.provider);
 
-    // Create the V3 trade
-    let trade;
+    // Convert amount to raw units
+    const rawAmount = JSBI.BigInt(
+      Math.floor(amount * Math.pow(10, (exactIn ? inputToken : outputToken).decimals)).toString(),
+    );
+
+    // Call Aerodrome quoter with tickSpacing
+    let amountOut: BigNumber;
+    let amountIn: BigNumber;
+
     if (exactIn) {
-      // For SELL (exactIn), we use the input amount and EXACT_INPUT trade type
-      const inputAmount = CurrencyAmount.fromRawAmount(
-        inputToken,
-        JSBI.BigInt(Math.floor(amount * Math.pow(10, inputToken.decimals)).toString()),
-      );
-      trade = await V3Trade.fromRoute(route, inputAmount, TradeType.EXACT_INPUT);
+      // SELL: exactInputSingle - uses struct parameter
+      const quoteParams = {
+        tokenIn: inputToken.address,
+        tokenOut: outputToken.address,
+        amountIn: rawAmount.toString(),
+        tickSpacing: tickSpacing,
+        sqrtPriceLimitX96: 0, // sqrtPriceLimitX96 = 0 means no limit
+      };
+      const result = await quoterContract.callStatic.quoteExactInputSingle(quoteParams);
+      amountOut = result.amountOut;
+      amountIn = BigNumber.from(rawAmount.toString());
     } else {
-      // For BUY (exactOut), we use the output amount and EXACT_OUTPUT trade type
-      const outputAmount = CurrencyAmount.fromRawAmount(
-        outputToken,
-        JSBI.BigInt(Math.floor(amount * Math.pow(10, outputToken.decimals)).toString()),
-      );
-      trade = await V3Trade.fromRoute(route, outputAmount, TradeType.EXACT_OUTPUT);
+      // BUY: exactOutputSingle - uses struct parameter
+      const quoteParams = {
+        tokenIn: inputToken.address,
+        tokenOut: outputToken.address,
+        amount: rawAmount.toString(), // Note: exactOutput uses 'amount' not 'amountOut'
+        tickSpacing: tickSpacing,
+        sqrtPriceLimitX96: 0, // sqrtPriceLimitX96 = 0 means no limit
+      };
+      const result = await quoterContract.callStatic.quoteExactOutputSingle(quoteParams);
+      amountIn = result.amountIn;
+      amountOut = BigNumber.from(rawAmount.toString());
     }
 
     // Calculate slippage-adjusted amounts
-    // Convert slippagePct to integer basis points (0.5% -> 50 basis points)
-    const slippageTolerance = new Percent(Math.floor((slippagePct ?? uniswap.config.slippagePct) * 100), 10000);
+    const slippagePercent = slippagePct ?? aerodrome.config.slippagePct;
+    const slippageTolerance = new Percent(Math.floor(slippagePercent * 100), 10000);
 
     const minAmountOut = exactIn
-      ? trade.minimumAmountOut(slippageTolerance).quotient.toString()
-      : trade.outputAmount.quotient.toString();
+      ? amountOut
+          .mul(Math.floor((10000 - slippagePercent * 100) * 100))
+          .div(1000000)
+          .toString()
+      : amountOut.toString();
 
     const maxAmountIn = exactIn
-      ? trade.inputAmount.quotient.toString()
-      : trade.maximumAmountIn(slippageTolerance).quotient.toString();
+      ? amountIn.toString()
+      : amountIn
+          .mul(Math.floor((10000 + slippagePercent * 100) * 100))
+          .div(1000000)
+          .toString();
 
-    // Calculate amounts - trade object has inputAmount and outputAmount for both types
-    const estimatedAmountIn = formatTokenAmount(trade.inputAmount.quotient.toString(), inputToken.decimals);
-
-    const estimatedAmountOut = formatTokenAmount(trade.outputAmount.quotient.toString(), outputToken.decimals);
-
+    // Format amounts
+    const estimatedAmountIn = formatTokenAmount(amountIn.toString(), inputToken.decimals);
+    const estimatedAmountOut = formatTokenAmount(amountOut.toString(), outputToken.decimals);
     const minAmountOutValue = formatTokenAmount(minAmountOut, outputToken.decimals);
     const maxAmountInValue = formatTokenAmount(maxAmountIn, inputToken.decimals);
 
-    // Calculate price impact
-    const priceImpact = parseFloat(trade.priceImpact.toSignificant(4));
+    // Calculate price impact (simplified - can be enhanced)
+    const priceImpact = 0; // Aerodrome quoter doesn't return price impact directly
 
     return {
       poolAddress,
@@ -94,21 +113,20 @@ async function quoteClmmSwap(
       priceImpact,
       inputToken,
       outputToken,
-      trade,
       // Add raw values for execution
-      rawAmountIn: trade.inputAmount.quotient.toString(),
-      rawAmountOut: trade.outputAmount.quotient.toString(),
+      rawAmountIn: amountIn.toString(),
+      rawAmountOut: amountOut.toString(),
       rawMinAmountOut: minAmountOut,
       rawMaxAmountIn: maxAmountIn,
-      feeTier: pool.fee,
+      tickSpacing,
     };
   } catch (error) {
-    logger.error(`Error quoting CLMM swap: ${error.message}`);
+    logger.error(`Error quoting Aerodrome CLMM swap: ${error.message}`);
     throw error;
   }
 }
 
-export async function getUniswapClmmQuote(
+export async function getAerodromeClmmQuote(
   _fastify: FastifyInstance,
   network: string,
   poolAddress: string,
@@ -119,13 +137,13 @@ export async function getUniswapClmmQuote(
   slippagePct?: number,
 ): Promise<{
   quote: any;
-  uniswap: any;
+  aerodrome: any;
   ethereum: any;
   baseTokenObj: any;
   quoteTokenObj: any;
 }> {
   // Get instances
-  const uniswap = await Uniswap.getInstance(network);
+  const aerodrome = await Aerodrome.getInstance(network);
   const ethereum = await Ethereum.getInstance(network);
 
   if (!ethereum.ready()) {
@@ -134,8 +152,8 @@ export async function getUniswapClmmQuote(
   }
 
   // Resolve tokens
-  const baseTokenObj = uniswap.getTokenBySymbol(baseToken);
-  const quoteTokenObj = uniswap.getTokenBySymbol(quoteToken);
+  const baseTokenObj = aerodrome.getTokenBySymbol(baseToken);
+  const quoteTokenObj = aerodrome.getTokenBySymbol(quoteToken);
 
   if (!baseTokenObj) {
     logger.error(`Base token not found: ${baseToken}`);
@@ -153,8 +171,9 @@ export async function getUniswapClmmQuote(
   );
 
   // Get the quote
-  const quote = await quoteClmmSwap(
-    uniswap,
+  const quote = await quoteAerodromeSwap(
+    aerodrome,
+    network,
     poolAddress,
     baseTokenObj,
     quoteTokenObj,
@@ -169,7 +188,7 @@ export async function getUniswapClmmQuote(
 
   return {
     quote,
-    uniswap,
+    aerodrome,
     ethereum,
     baseTokenObj,
     quoteTokenObj,
@@ -192,7 +211,7 @@ async function formatSwapQuote(
 
   try {
     // Use the extracted quote function
-    const { quote, uniswap, ethereum, baseTokenObj, quoteTokenObj } = await getUniswapClmmQuote(
+    const { quote, aerodrome, ethereum, baseTokenObj, quoteTokenObj } = await getAerodromeClmmQuote(
       fastify,
       network,
       poolAddress,
@@ -229,7 +248,6 @@ async function formatSwapQuote(
     // Calculate price based on side
     // For SELL: price = quote received / base sold
     // For BUY: price = quote needed / base received
-
     const price =
       side === 'SELL'
         ? quote.estimatedAmountOut / quote.estimatedAmountIn
@@ -242,15 +260,9 @@ async function formatSwapQuote(
     // Calculate price impact percentage
     const priceImpactPct = quote.priceImpact;
 
-    // Get current tick from pool
-    const activeBinId = quote.currentTick || 0;
-
     // Determine token addresses for computed fields
     const tokenIn = quote.inputToken.address;
     const tokenOut = quote.outputToken.address;
-
-    // Calculate fee (V3 has dynamic fees based on pool)
-    const fee = quote.estimatedAmountIn * (quote.feeTier / 1000000);
 
     return {
       // Base QuoteSwapResponse fields in correct order
@@ -286,8 +298,8 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
     '/quote-swap',
     {
       schema: {
-        description: 'Get swap quote for Uniswap V3 CLMM',
-        tags: ['/connector/uniswap'],
+        description: 'Get swap quote for Aerodrome V3 CLMM',
+        tags: ['/connector/aerodrome'],
         querystring: {
           ...QuoteSwapRequest,
           properties: {
@@ -314,7 +326,7 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
           throw fastify.httpErrors.badRequest('baseToken, amount, and side are required');
         }
 
-        const uniswap = await Uniswap.getInstance(networkToUse);
+        const aerodrome = await Aerodrome.getInstance(networkToUse);
 
         let poolAddressToUse = poolAddress;
         let baseTokenToUse: string;
@@ -322,37 +334,18 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
 
         if (poolAddressToUse) {
           // Pool address provided, get pool info to determine tokens
-          const poolInfo = await getUniswapPoolInfo(poolAddressToUse, networkToUse, 'clmm');
-          if (!poolInfo) {
+          const { pool } = await aerodrome.getV3Pool(baseToken, quoteToken || '', poolAddressToUse);
+          if (!pool) {
             throw fastify.httpErrors.notFound(sanitizeErrorMessage('Pool not found: {}', poolAddressToUse));
           }
 
-          // Determine which token is base and which is quote based on the provided baseToken
-          if (baseToken === poolInfo.baseTokenAddress) {
-            baseTokenToUse = poolInfo.baseTokenAddress;
-            quoteTokenToUse = poolInfo.quoteTokenAddress;
-          } else if (baseToken === poolInfo.quoteTokenAddress) {
-            // User specified the quote token as base, so swap them
-            baseTokenToUse = poolInfo.quoteTokenAddress;
-            quoteTokenToUse = poolInfo.baseTokenAddress;
-          } else {
-            // Try to resolve baseToken as symbol to address
-            const resolvedToken = uniswap.getTokenBySymbol(baseToken);
-
-            if (resolvedToken) {
-              if (resolvedToken.address === poolInfo.baseTokenAddress) {
-                baseTokenToUse = poolInfo.baseTokenAddress;
-                quoteTokenToUse = poolInfo.quoteTokenAddress;
-              } else if (resolvedToken.address === poolInfo.quoteTokenAddress) {
-                baseTokenToUse = poolInfo.quoteTokenAddress;
-                quoteTokenToUse = poolInfo.baseTokenAddress;
-              } else {
-                throw fastify.httpErrors.badRequest(`Token ${baseToken} not found in pool ${poolAddressToUse}`);
-              }
-            } else {
-              throw fastify.httpErrors.badRequest(`Token ${baseToken} not found in pool ${poolAddressToUse}`);
-            }
+          // For Aerodrome, we need both tokens to determine the pair
+          if (!quoteToken) {
+            throw fastify.httpErrors.badRequest('quoteToken is required when using poolAddress');
           }
+
+          baseTokenToUse = baseToken;
+          quoteTokenToUse = quoteToken;
         } else {
           // No pool address provided, need quoteToken to find pool
           if (!quoteToken) {
@@ -363,7 +356,7 @@ export const quoteSwapRoute: FastifyPluginAsync = async (fastify) => {
           quoteTokenToUse = quoteToken;
 
           // Find pool using findDefaultPool
-          poolAddressToUse = await uniswap.findDefaultPool(baseTokenToUse, quoteTokenToUse, 'clmm');
+          poolAddressToUse = await aerodrome.findDefaultPool(baseTokenToUse, quoteTokenToUse, 'clmm');
 
           if (!poolAddressToUse) {
             throw fastify.httpErrors.notFound(`No CLMM pool found for pair ${baseTokenToUse}-${quoteTokenToUse}`);

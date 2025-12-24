@@ -88,6 +88,14 @@ configurations:
     configurationPath: connectors/pancakeswap-sol.yml
     schemaPath: pancakeswap-sol-schema.json
 
+  $namespace quickswap:
+    configurationPath: connectors/quickswap.yml
+    schemaPath: quickswap-schema.json
+
+  $namespace aerodrome:
+    configurationPath: connectors/aerodrome.yml
+    schemaPath: aerodrome-schema.json
+
   # RPC providers
   $namespace helius:
     configurationPath: rpc/helius.yml

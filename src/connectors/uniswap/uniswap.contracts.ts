@@ -27,6 +27,7 @@ export interface UniswapContractAddresses {
   // V4 contracts
   uniswapV4PoolManagerAddress?: string;
   uniswapV4StateViewAddress?: string;
+  uniswapV4QuoterAddress?: string;
 }
 
 export interface NetworkContractAddresses {
@@ -93,6 +94,7 @@ export const contractAddresses: NetworkContractAddresses = {
     // V4 contracts - Official Uniswap addresses
     uniswapV4PoolManagerAddress: '0x498581ff718922c3f8e6a244956af099b2652b2b',
     uniswapV4StateViewAddress: '0xa3c0c9b65bad0b08107aa264b0f3db444b867a71',
+    uniswapV4QuoterAddress: '0x0d5e0F971ED27FBfF6c2837bf31316121532048D',
   },
   sepolia: {
     // V2 contracts - Official Uniswap addresses for Sepolia testnet
@@ -295,6 +297,93 @@ export function getUniswapV4StateViewAddress(network: string): string {
 
   if (!address) {
     throw new Error(`Uniswap V4 StateView address not configured for network: ${network}`);
+  }
+
+  return address;
+}
+
+/**
+ * Uniswap V4 Quoter ABI - Official ABI from Uniswap V4
+ * Note: quoteExactInputSingle is nonpayable (not view) because it uses callbacks
+ * Note: Currency is a type alias for address in V4, but the ABI uses "Currency" type
+ */
+export const IV4QuoterABI = [
+  {
+    inputs: [
+      {
+        components: [
+          {
+            components: [
+              { internalType: 'Currency', name: 'currency0', type: 'address' },
+              { internalType: 'Currency', name: 'currency1', type: 'address' },
+              { internalType: 'uint24', name: 'fee', type: 'uint24' },
+              { internalType: 'int24', name: 'tickSpacing', type: 'int24' },
+              { internalType: 'contract IHooks', name: 'hooks', type: 'address' },
+            ],
+            internalType: 'struct PoolKey',
+            name: 'poolKey',
+            type: 'tuple',
+          },
+          { internalType: 'bool', name: 'zeroForOne', type: 'bool' },
+          { internalType: 'uint128', name: 'exactAmount', type: 'uint128' },
+          { internalType: 'bytes', name: 'hookData', type: 'bytes' },
+        ],
+        internalType: 'struct IV4Quoter.QuoteExactSingleParams',
+        name: 'params',
+        type: 'tuple',
+      },
+    ],
+    name: 'quoteExactInputSingle',
+    outputs: [
+      { internalType: 'uint256', name: 'amountOut', type: 'uint256' },
+      { internalType: 'uint256', name: 'gasEstimate', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      {
+        components: [
+          {
+            components: [
+              { internalType: 'Currency', name: 'currency0', type: 'address' },
+              { internalType: 'Currency', name: 'currency1', type: 'address' },
+              { internalType: 'uint24', name: 'fee', type: 'uint24' },
+              { internalType: 'int24', name: 'tickSpacing', type: 'int24' },
+              { internalType: 'contract IHooks', name: 'hooks', type: 'address' },
+            ],
+            internalType: 'struct PoolKey',
+            name: 'poolKey',
+            type: 'tuple',
+          },
+          { internalType: 'bool', name: 'zeroForOne', type: 'bool' },
+          { internalType: 'uint128', name: 'exactAmount', type: 'uint128' },
+          { internalType: 'bytes', name: 'hookData', type: 'bytes' },
+        ],
+        internalType: 'struct IV4Quoter.QuoteExactSingleParams',
+        name: 'params',
+        type: 'tuple',
+      },
+    ],
+    name: 'quoteExactOutputSingle',
+    outputs: [
+      { internalType: 'uint256', name: 'amountIn', type: 'uint256' },
+      { internalType: 'uint256', name: 'gasEstimate', type: 'uint256' },
+    ],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+];
+
+/**
+ * Get V4 Quoter contract address
+ */
+export function getUniswapV4QuoterAddress(network: string): string {
+  const address = contractAddresses[network]?.uniswapV4QuoterAddress;
+
+  if (!address) {
+    throw new Error(`Uniswap V4 Quoter address not configured for network: ${network}`);
   }
 
   return address;

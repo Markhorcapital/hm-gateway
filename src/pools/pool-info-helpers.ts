@@ -6,6 +6,7 @@ import { FastifyInstance } from 'fastify';
 
 import { Ethereum } from '../chains/ethereum/ethereum';
 import { Solana } from '../chains/solana/solana';
+import { Aerodrome } from '../connectors/aerodrome/aerodrome';
 import { Meteora } from '../connectors/meteora/meteora';
 import { Raydium } from '../connectors/raydium/raydium';
 import { Uniswap } from '../connectors/uniswap/uniswap';
@@ -101,6 +102,40 @@ export async function fetchPoolInfo(
           feePct: 0.3,
         };
       }
+    } else if (connector === 'aerodrome') {
+      // Aerodrome V3 (CLMM only)
+      if (type !== 'clmm') {
+        logger.error('Aerodrome only supports CLMM pools');
+        return null;
+      }
+
+      const aerodrome = await Aerodrome.getInstance(network);
+      const ethereum = await Ethereum.getInstance(network);
+
+      // Get pool contract to fetch token addresses and fee
+      const { Contract } = await import('ethers');
+      const { IAerodromeV3PoolABI } = await import('../connectors/aerodrome/aerodrome.contracts');
+
+      const poolContract = new Contract(poolAddress, IAerodromeV3PoolABI, ethereum.provider);
+
+      // Get token addresses and fee from pool contract
+      const [token0, token1, fee] = await Promise.all([
+        poolContract.token0(),
+        poolContract.token1(),
+        poolContract.fee(),
+      ]);
+
+      // Convert fee from basis points to percentage
+      const feePct = fee / 10000;
+
+      // Determine base and quote tokens (token0 is typically the lower address)
+      // For Aerodrome, we'll use token0 as base and token1 as quote
+      // This can be adjusted based on actual pool structure
+      return {
+        baseTokenAddress: token0,
+        quoteTokenAddress: token1,
+        feePct: feePct,
+      };
     }
 
     logger.error(`Unsupported connector: ${connector}`);
@@ -126,7 +161,7 @@ export async function resolveTokenSymbols(
 
     if (connector === 'raydium' || connector === 'meteora') {
       chain = await Solana.getInstance(network);
-    } else if (connector === 'uniswap') {
+    } else if (connector === 'uniswap' || connector === 'aerodrome') {
       chain = await Ethereum.getInstance(network);
     } else {
       throw new Error(`Unsupported connector: ${connector}`);

@@ -1,39 +1,39 @@
-// V3 (CLMM) imports
-import { Protocol } from '@uniswap/router-sdk';
+// V3 (CLMM) imports - QuickSwap uses Algebra V3, not standard Uniswap V3
 import { Token, CurrencyAmount, Percent, TradeType } from '@uniswap/sdk-core';
-import { Pair as V2Pair } from '@uniswap/v2-sdk';
-import { abi as IUniswapV3FactoryABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Factory.sol/IUniswapV3Factory.json';
-import { abi as IUniswapV3PoolABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
+import { AlphaRouter } from '@uniswap/smart-order-router';
+import { Pair as V2Pair, Route as V2Route, Trade as V2Trade } from '@uniswap/v2-sdk';
 import { FeeAmount, Pool as V3Pool } from '@uniswap/v3-sdk';
-import { Contract, constants } from 'ethers';
+import { Contract, constants, providers } from 'ethers';
 import { getAddress } from 'ethers/lib/utils';
 import JSBI from 'jsbi';
 
 import { Ethereum, TokenInfo } from '../../chains/ethereum/ethereum';
 import { logger } from '../../services/logger';
+import { isValidV2Pool, isValidV3Pool } from '../uniswap/uniswap.utils';
 
-import { UniswapConfig } from './uniswap.config';
+import { QuickSwapConfig } from './quickswap.config';
 import {
   IUniswapV2PairABI,
   IUniswapV2FactoryABI,
   IUniswapV2Router02ABI,
-  getUniswapV2RouterAddress,
-  getUniswapV2FactoryAddress,
-  getUniswapV3NftManagerAddress,
-  getUniswapV3QuoterV2ContractAddress,
-  getUniswapV3FactoryAddress,
-} from './uniswap.contracts';
-import { isValidV2Pool, isValidV3Pool } from './uniswap.utils';
-import { UniversalRouterService } from './universal-router';
+  IAlgebraV3FactoryABI,
+  IAlgebraV3QuoterABI,
+  IAlgebraV3PositionManagerABI,
+  getQuickSwapV2RouterAddress,
+  getQuickSwapV2FactoryAddress,
+  getQuickSwapV3NftManagerAddress,
+  getQuickSwapV3QuoterV2ContractAddress,
+  getQuickSwapV3FactoryAddress,
+} from './quickswap.contracts';
 
-export class Uniswap {
-  private static _instances: { [name: string]: Uniswap };
+export class QuickSwap {
+  private static _instances: { [name: string]: QuickSwap };
 
-  // Ethereum chain instance
+  // Ethereum chain instance (QuickSwap runs on Ethereum-compatible chains)
   private ethereum: Ethereum;
 
   // Configuration
-  public config: UniswapConfig.RootConfig;
+  public config: QuickSwapConfig.RootConfig;
 
   // Common properties
   private chainId: number;
@@ -43,35 +43,35 @@ export class Uniswap {
   private v2Factory: Contract;
   private v2Router: Contract;
 
-  // V3 (CLMM) properties
-  private v3Factory: Contract;
-  private v3NFTManager: Contract;
-  private v3Quoter: Contract;
-  private universalRouter: UniversalRouterService;
+  // V3 (CLMM) properties - only available on some networks
+  private _alphaRouter: AlphaRouter | null;
+  private v3Factory: Contract | null;
+  private v3NFTManager: Contract | null;
+  private v3Quoter: Contract | null;
 
   // Network information
   private networkName: string;
 
   private constructor(network: string) {
     this.networkName = network;
-    this.config = UniswapConfig.config;
+    this.config = QuickSwapConfig.config;
   }
 
-  public static async getInstance(network: string): Promise<Uniswap> {
-    if (Uniswap._instances === undefined) {
-      Uniswap._instances = {};
+  public static async getInstance(network: string): Promise<QuickSwap> {
+    if (QuickSwap._instances === undefined) {
+      QuickSwap._instances = {};
     }
 
-    if (!(network in Uniswap._instances)) {
-      Uniswap._instances[network] = new Uniswap(network);
-      await Uniswap._instances[network].init();
+    if (!(network in QuickSwap._instances)) {
+      QuickSwap._instances[network] = new QuickSwap(network);
+      await QuickSwap._instances[network].init();
     }
 
-    return Uniswap._instances[network];
+    return QuickSwap._instances[network];
   }
 
   /**
-   * Initialize the Uniswap instance
+   * Initialize the QuickSwap instance
    */
   public async init() {
     try {
@@ -79,61 +79,54 @@ export class Uniswap {
       this.ethereum = await Ethereum.getInstance(this.networkName);
       this.chainId = this.ethereum.chainId;
 
-      // Initialize V2 (AMM) contracts
+      // Initialize V2 (AMM) contracts - always available
       this.v2Factory = new Contract(
-        getUniswapV2FactoryAddress(this.networkName),
+        getQuickSwapV2FactoryAddress(this.networkName),
         IUniswapV2FactoryABI.abi,
         this.ethereum.provider,
       );
 
       this.v2Router = new Contract(
-        getUniswapV2RouterAddress(this.networkName),
+        getQuickSwapV2RouterAddress(this.networkName),
         IUniswapV2Router02ABI.abi,
         this.ethereum.provider,
       );
 
-      // Initialize V3 (CLMM) contracts
-      this.v3Factory = new Contract(
-        getUniswapV3FactoryAddress(this.networkName),
-        IUniswapV3FactoryABI,
-        this.ethereum.provider,
-      );
+      // Initialize V3 (CLMM) contracts - only on supported networks
+      try {
+        this.v3Factory = new Contract(
+          getQuickSwapV3FactoryAddress(this.networkName),
+          IAlgebraV3FactoryABI,
+          this.ethereum.provider,
+        );
 
-      // Initialize NFT Manager with minimal ABI
-      this.v3NFTManager = new Contract(
-        getUniswapV3NftManagerAddress(this.networkName),
-        [
-          {
-            inputs: [{ internalType: 'address', name: 'owner', type: 'address' }],
-            name: 'balanceOf',
-            outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
-            stateMutability: 'view',
-            type: 'function',
-          },
-        ],
-        this.ethereum.provider,
-      );
+        this.v3NFTManager = new Contract(
+          getQuickSwapV3NftManagerAddress(this.networkName),
+          IAlgebraV3PositionManagerABI,
+          this.ethereum.provider,
+        );
 
-      // Initialize Quoter with minimal ABI
-      this.v3Quoter = new Contract(
-        getUniswapV3QuoterV2ContractAddress(this.networkName),
-        [
-          {
-            inputs: [
-              { internalType: 'bytes', name: 'path', type: 'bytes' },
-              { internalType: 'uint256', name: 'amountIn', type: 'uint256' },
-            ],
-            name: 'quoteExactInput',
-            outputs: [{ internalType: 'uint256', name: 'amountOut', type: 'uint256' }],
-            stateMutability: 'nonpayable',
-            type: 'function',
-          },
-        ],
-        this.ethereum.provider,
-      );
+        this.v3Quoter = new Contract(
+          getQuickSwapV3QuoterV2ContractAddress(this.networkName),
+          IAlgebraV3QuoterABI,
+          this.ethereum.provider,
+        );
 
-      // Initialize Universal Router service
-      this.universalRouter = new UniversalRouterService(this.ethereum.provider, this.chainId, this.networkName);
+        // Initialize AlphaRouter for V3 swap routing
+        this._alphaRouter = new AlphaRouter({
+          chainId: this.chainId,
+          provider: this.ethereum.provider,
+        });
+
+        logger.info(`QuickSwap V3 contracts initialized for network: ${this.networkName}`);
+      } catch (error) {
+        // V3 contracts not available on this network
+        logger.info(`QuickSwap V3 contracts not available for network: ${this.networkName}`);
+        this.v3Factory = null;
+        this.v3NFTManager = null;
+        this.v3Quoter = null;
+        this._alphaRouter = null;
+      }
 
       // Ensure ethereum is initialized
       if (!this.ethereum.ready()) {
@@ -141,15 +134,15 @@ export class Uniswap {
       }
 
       this._ready = true;
-      logger.info(`Uniswap connector initialized for network: ${this.networkName}`);
+      logger.info(`QuickSwap connector initialized for network: ${this.networkName}`);
     } catch (error) {
-      logger.error(`Error initializing Uniswap: ${error.message}`);
+      logger.error(`Error initializing QuickSwap: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * Check if the Uniswap instance is ready
+   * Check if the QuickSwap instance is ready
    */
   public ready(): boolean {
     return this._ready;
@@ -179,56 +172,8 @@ export class Uniswap {
    * @param tokenInfo Token information from Ethereum
    * @returns Uniswap SDK Token object
    */
-  public getUniswapToken(tokenInfo: TokenInfo): Token {
+  public getQuickSwapToken(tokenInfo: TokenInfo): Token {
     return new Token(this.ethereum.chainId, tokenInfo.address, tokenInfo.decimals, tokenInfo.symbol, tokenInfo.name);
-  }
-
-  /**
-   * Get a quote from Universal Router for token swaps
-   * @param inputToken The token being swapped from
-   * @param outputToken The token being swapped to
-   * @param amount The amount to swap
-   * @param side The trade direction (BUY or SELL)
-   * @param walletAddress The recipient wallet address
-   * @returns Quote result from Universal Router
-   */
-  public async getUniversalRouterQuote(
-    inputToken: Token,
-    outputToken: Token,
-    amount: number,
-    side: 'BUY' | 'SELL',
-    walletAddress: string,
-  ): Promise<any> {
-    // Determine input/output based on side
-    const exactIn = side === 'SELL';
-    const tokenForAmount = exactIn ? inputToken : outputToken;
-
-    // Convert amount to token units using ethers parseUnits for proper decimal handling
-    const { parseUnits } = await import('ethers/lib/utils');
-    const rawAmount = parseUnits(amount.toString(), tokenForAmount.decimals);
-    const tradeAmount = CurrencyAmount.fromRawAmount(tokenForAmount, rawAmount.toString());
-
-    // Use default protocols (V2, V3, and V4)
-    const protocolsToUse = [Protocol.V4];
-
-    // Get slippage from config
-    const slippageTolerance = new Percent(Math.floor(this.config.slippagePct * 100), 10000);
-
-    // Get quote from Universal Router
-    const quoteResult = await this.universalRouter.getQuote(
-      inputToken,
-      outputToken,
-      tradeAmount,
-      exactIn ? TradeType.EXACT_INPUT : TradeType.EXACT_OUTPUT,
-      {
-        slippageTolerance,
-        deadline: Math.floor(Date.now() / 1000 + 1800), // 30 minutes
-        recipient: walletAddress,
-        protocols: protocolsToUse,
-      },
-    );
-
-    return quoteResult;
   }
 
   /**
@@ -285,14 +230,9 @@ export class Uniswap {
   }
 
   /**
-   * Get a V3 pool by its address or by token symbols and fee
+   * Get a V3 pool by its address or by token symbols (Algebra V3 uses poolByPair, no fee parameter)
    */
-  public async getV3Pool(
-    tokenA: Token | string,
-    tokenB: Token | string,
-    fee?: FeeAmount,
-    poolAddress?: string,
-  ): Promise<V3Pool | null> {
+  public async getV3Pool(tokenA: Token | string, tokenB: Token | string, poolAddress?: string): Promise<V3Pool | null> {
     try {
       // Resolve pool address if provided
       let poolAddr = poolAddress;
@@ -306,28 +246,9 @@ export class Uniswap {
         throw new Error(`Invalid tokens: ${tokenA}, ${tokenB}`);
       }
 
-      // Find pool address if not provided
-      if (!poolAddr) {
-        // If a fee is provided, try to get it from the factory
-        if (fee) {
-          poolAddr = await this.v3Factory.getPool(tokenAObj.address, tokenBObj.address, fee);
-        }
-
-        // If still not found, try all possible fee tiers
-        if (!poolAddr) {
-          // Try each fee tier
-          const allFeeTiers = [FeeAmount.LOWEST, FeeAmount.LOW, FeeAmount.MEDIUM, FeeAmount.HIGH];
-
-          for (const feeTier of allFeeTiers) {
-            if (feeTier === fee) continue; // Skip if we already tried this fee tier
-
-            poolAddr = await this.v3Factory.getPool(tokenAObj.address, tokenBObj.address, feeTier);
-
-            if (poolAddr && poolAddr !== constants.AddressZero) {
-              break;
-            }
-          }
-        }
+      // Find pool address if not provided - QuickSwap Algebra V3 uses poolByPair (no fee parameter)
+      if (!poolAddr && this.v3Factory) {
+        poolAddr = await this.v3Factory.poolByPair(tokenAObj.address, tokenBObj.address);
       }
 
       // If no pool exists or invalid address, return null
@@ -341,14 +262,30 @@ export class Uniswap {
         return null;
       }
 
-      // Get pool data from the contract
+      // Get pool data from the contract - Algebra V3 pool structure
+      const { abi: IUniswapV3PoolABI } = await import(
+        '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json'
+      );
       const poolContract = new Contract(poolAddr, IUniswapV3PoolABI, this.ethereum.provider);
 
-      const [liquidity, slot0, feeData] = await Promise.all([
-        poolContract.liquidity(),
-        poolContract.slot0(),
-        poolContract.fee(),
-      ]);
+      const [liquidity, slot0] = await Promise.all([poolContract.liquidity(), poolContract.slot0()]);
+
+      // For Algebra V3, try to get fee from the pool contract
+      // Algebra pools may use different methods, try standard fee() first
+      let feeData: any;
+      try {
+        feeData = await poolContract.fee();
+      } catch (error) {
+        // If fee() doesn't exist, try globalState() for Algebra
+        try {
+          const globalState = await poolContract.globalState();
+          feeData = globalState.fee || globalState.fee_;
+        } catch (e) {
+          // Default fee if we can't determine
+          feeData = 3000; // 0.3% default
+          logger.warn(`Could not determine fee for pool ${poolAddr}, using default 3000`);
+        }
+      }
 
       const [sqrtPriceX96, tick] = slot0;
 
@@ -370,8 +307,6 @@ export class Uniswap {
             };
           },
           async nextInitializedTickWithinOneWord(tick, lte, tickSpacing) {
-            // Always return a valid result to prevent errors
-            // Use the direction parameter (lte) to determine which way to go
             const nextTick = lte ? tick - tickSpacing : tick + tickSpacing;
             return [nextTick, false];
           },
@@ -412,7 +347,7 @@ export class Uniswap {
       const poolService = PoolService.getInstance();
 
       const pool = await poolService.getPool(
-        'uniswap',
+        'quickswap',
         this.networkName,
         poolType,
         baseTokenInfo.symbol,
@@ -420,8 +355,24 @@ export class Uniswap {
       );
 
       if (!pool) {
+        // Fallback: Try to find pool dynamically
+        if (poolType === 'amm' && this.v2Factory) {
+          const pairAddress = await this.v2Factory.getPair(baseTokenInfo.address, quoteTokenInfo.address);
+          if (pairAddress && pairAddress !== constants.AddressZero) {
+            logger.info(`Found V2 pair: ${pairAddress} for ${baseTokenInfo.symbol}-${quoteTokenInfo.symbol}`);
+            return pairAddress;
+          }
+        } else if (poolType === 'clmm' && this.v3Factory) {
+          // QuickSwap Algebra V3: Use poolByPair (no fee parameter - dynamic fees)
+          const poolAddress = await this.v3Factory.poolByPair(baseTokenInfo.address, quoteTokenInfo.address);
+          if (poolAddress && poolAddress !== constants.AddressZero) {
+            logger.info(`Found Algebra V3 pool: ${poolAddress} for ${baseTokenInfo.symbol}-${quoteTokenInfo.symbol}`);
+            return poolAddress;
+          }
+        }
+
         logger.warn(
-          `No ${poolType} pool found for ${baseTokenInfo.symbol}-${quoteTokenInfo.symbol} on Uniswap network ${this.networkName}`,
+          `No ${poolType} pool found for ${baseTokenInfo.symbol}-${quoteTokenInfo.symbol} on QuickSwap network ${this.networkName}`,
         );
         return null;
       }
@@ -438,6 +389,78 @@ export class Uniswap {
   }
 
   /**
+   * Check if V3 is supported on this network
+   */
+  public get supportsV3(): boolean {
+    return this.v3Factory !== null && this.v3NFTManager !== null && this.v3Quoter !== null;
+  }
+
+  /**
+   * Get V2 factory contract
+   */
+  public get factoryV2(): Contract {
+    return this.v2Factory;
+  }
+
+  /**
+   * Get V2 router contract
+   */
+  public get routerV2(): Contract {
+    return this.v2Router;
+  }
+
+  /**
+   * Get V3 factory contract (may be null)
+   */
+  public get factoryV3(): Contract | null {
+    return this.v3Factory;
+  }
+
+  /**
+   * Get V3 NFT manager contract (may be null)
+   */
+  public get nftManagerV3(): Contract | null {
+    return this.v3NFTManager;
+  }
+
+  /**
+   * Get V3 quoter contract (may be null)
+   */
+  public get quoterV3(): Contract | null {
+    return this.v3Quoter;
+  }
+
+  /**
+   * Get ethereum provider
+   */
+  public get provider(): providers.StaticJsonRpcProvider {
+    return this.ethereum.provider;
+  }
+
+  /**
+   * Get AlphaRouter instance (may be null)
+   */
+  public get alphaRouter(): AlphaRouter | null {
+    return this._alphaRouter;
+  }
+
+  /**
+   * Get allowed slippage as Percent
+   */
+  public get allowedSlippage(): Percent {
+    const slippagePercent = this.config.slippagePct || 0.5;
+    return new Percent(Math.floor(slippagePercent * 100), 10000);
+  }
+
+  /**
+   * Get gas limit estimate for the current network
+   */
+  public get gasLimitEstimate(): number {
+    // Default gas limit for most operations
+    return 300000;
+  }
+
+  /**
    * Get the first available wallet address from Ethereum
    */
   public async getFirstWalletAddress(): Promise<string | null> {
@@ -450,14 +473,18 @@ export class Uniswap {
   }
 
   /**
-   * Check NFT ownership for Uniswap V3 positions
+   * Check NFT ownership for QuickSwap V3 positions
    * @param positionId The NFT position ID
    * @param walletAddress The wallet address to check ownership for
    * @throws Error if position is not owned by wallet or position ID is invalid
    */
   public async checkNFTOwnership(positionId: string, walletAddress: string): Promise<void> {
+    if (!this.v3NFTManager) {
+      throw new Error('V3 NFT Manager not available on this network');
+    }
+
     const nftContract = new Contract(
-      getUniswapV3NftManagerAddress(this.networkName),
+      getQuickSwapV3NftManagerAddress(this.networkName),
       [
         {
           inputs: [{ internalType: 'uint256', name: 'tokenId', type: 'uint256' }],
@@ -484,15 +511,19 @@ export class Uniswap {
   }
 
   /**
-   * Check NFT approval for Uniswap V3 positions
+   * Check NFT approval for QuickSwap V3 positions
    * @param positionId The NFT position ID
    * @param walletAddress The wallet address that owns the NFT
    * @param operatorAddress The address that needs approval (usually the position manager itself)
    * @throws Error if NFT is not approved
    */
   public async checkNFTApproval(positionId: string, walletAddress: string, operatorAddress: string): Promise<void> {
+    if (!this.v3NFTManager) {
+      throw new Error('V3 NFT Manager not available on this network');
+    }
+
     const nftContract = new Contract(
-      getUniswapV3NftManagerAddress(this.networkName),
+      getQuickSwapV3NftManagerAddress(this.networkName),
       [
         {
           inputs: [{ internalType: 'uint256', name: 'tokenId', type: 'uint256' }],
@@ -521,18 +552,18 @@ export class Uniswap {
 
     if (approvedAddress.toLowerCase() !== operatorAddress.toLowerCase() && !isApprovedForAll) {
       throw new Error(
-        `Insufficient NFT approval. Please approve the position NFT (${positionId}) for the Uniswap Position Manager (${operatorAddress})`,
+        `Insufficient NFT approval. Please approve the position NFT (${positionId}) for the QuickSwap Position Manager (${operatorAddress})`,
       );
     }
   }
 
   /**
-   * Close the Uniswap instance and clean up resources
+   * Close the QuickSwap instance and clean up resources
    */
   public async close() {
     // Clean up resources
-    if (this.networkName in Uniswap._instances) {
-      delete Uniswap._instances[this.networkName];
+    if (this.networkName in QuickSwap._instances) {
+      delete QuickSwap._instances[this.networkName];
     }
   }
 }
