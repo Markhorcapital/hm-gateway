@@ -6,7 +6,6 @@ import {
   Route as V3Route,
   Trade as V3Trade,
 } from '@uniswap/v3-sdk';
-import { BigNumber } from 'ethers';
 import { FastifyPluginAsync, FastifyInstance } from 'fastify';
 import JSBI from 'jsbi';
 
@@ -259,14 +258,14 @@ async function formatSwapQuote(
     );
 
     // Get gas estimate for V3 swap
-    const estimatedGasValue = 200000; // V3 swaps use more gas than V2
-    const gasPrice = await ethereum.provider.getGasPrice();
-    logger.info(`Gas price from provider: ${gasPrice.toString()}`);
+    const estimatedGasValue = Ethereum.DEFAULT_SWAP_GAS_LIMIT;
+    const gasPriceGwei = await ethereum.estimateGasPrice();
+    logger.info(`Gas price (EIP-1559 aware): ${gasPriceGwei} GWEI`);
 
-    // Calculate gas cost
-    const estimatedGasBN = BigNumber.from(estimatedGasValue.toString());
-    const gasCostRaw = gasPrice.mul(estimatedGasBN);
-    const gasCost = formatTokenAmount(gasCostRaw.toString(), 18); // ETH has 18 decimals
+    // Calculate gas cost (includes L1 fee on Base/Optimism)
+    const gasCost = ethereum.isOpStackNetwork()
+      ? await ethereum.estimateTotalFees(estimatedGasValue)
+      : gasPriceGwei * estimatedGasValue * 1e-9;
     logger.info(`Gas cost: ${gasCost} ETH`);
 
     // Calculate price based on side
@@ -277,10 +276,6 @@ async function formatSwapQuote(
         ? quote.estimatedAmountOut / quote.estimatedAmountIn
         : quote.estimatedAmountIn / quote.estimatedAmountOut;
 
-    // Format gas price as Gwei
-    const gasPriceGwei = formatTokenAmount(gasPrice.toString(), 9); // Convert to Gwei
-    logger.info(`Gas price in Gwei: ${gasPriceGwei}`);
-
     return {
       poolAddress,
       estimatedAmountIn: quote.estimatedAmountIn,
@@ -290,8 +285,8 @@ async function formatSwapQuote(
       baseTokenBalanceChange,
       quoteTokenBalanceChange,
       price,
-      gasPrice: Number(gasPriceGwei), // Convert to number
-      gasLimit: estimatedGasValue, // Already a number
+      gasPrice: Number(gasPriceGwei),
+      gasLimit: estimatedGasValue,
       gasCost,
     };
   } catch (error) {

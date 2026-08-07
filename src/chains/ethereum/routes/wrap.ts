@@ -142,32 +142,28 @@ export async function wrapEthereum(
   );
 
   try {
-    // Set transaction parameters
+    // Set transaction parameters with EIP-1559 fees when available
+    const feeOverrides = await ethereum.getFeeOverrides();
     const params: any = {
-      gasLimit: ethereum.gasLimitTransaction,
+      gasLimit: 100000, // WETH deposit is cheap; avoid 3M hard-cap inflation
       nonce: await ethereum.provider.getTransactionCount(wallet.address),
       value: amountInWei, // Send native token with the transaction
+      ...feeOverrides,
     };
-
-    // Always fetch gas price from the network
-    const currentGasPrice = await ethereum.provider.getGasPrice();
-    params.gasPrice = currentGasPrice.toString();
-    logger.info(
-      `Using network gas price: ${utils.formatUnits(currentGasPrice, 'gwei')} GWEI`,
-    );
 
     // Create transaction to call deposit() function
     const depositTx = await wrappedContract.populateTransaction.deposit(params);
     const transaction = await wallet.sendTransaction(depositTx);
 
-    // Calculate estimated fee
-    const gasPrice = await ethereum.provider.getGasPrice();
-    const fee = transaction.gasLimit.mul(gasPrice);
+    // Calculate estimated fee (L2+L1 on Base/Optimism)
+    const feeEth = await ethereum.estimateTotalFees(
+      transaction.gasLimit.toNumber(),
+    );
 
     return {
       nonce: transaction.nonce,
       signature: transaction.hash,
-      fee: bigNumberWithDecimalToStr(fee, 18),
+      fee: feeEth.toString(),
       amount: bigNumberWithDecimalToStr(amountInWei, 18),
       wrappedAddress: wrappedInfo.address,
       nativeToken: wrappedInfo.nativeSymbol,

@@ -379,14 +379,17 @@ export async function getUniswapQuote(
   const quoteTokenBalanceChange =
     side === 'BUY' ? -estimatedAmountIn : estimatedAmountOut;
 
-  // Use fixed gas limit for Uniswap V3 swaps
-  const gasLimit = 300000;
-  logger.info(`Gas limit: using fixed ${gasLimit} for Uniswap V3 swap`);
+  // Use realistic gas limit for Uniswap V3 swaps
+  const gasLimit = Ethereum.DEFAULT_SWAP_GAS_LIMIT;
+  logger.info(`Gas limit: using ${gasLimit} for Uniswap V3 swap`);
   
-  const gasPrice = await ethereum.estimateGasPrice(); // Use ethereum's estimateGasPrice method
+  const gasPrice = await ethereum.estimateGasPrice();
   logger.info(`Gas price: ${gasPrice} GWEI from ethereum.estimateGasPrice()`);
   
-  const gasCost = gasPrice * gasLimit * 1e-9; // Convert to ETH
+  // Include L1 security fee on Base/Optimism
+  const gasCost = ethereum.isOpStackNetwork()
+    ? await ethereum.estimateTotalFees(gasLimit)
+    : gasPrice * gasLimit * 1e-9;
 
   return {
     route,

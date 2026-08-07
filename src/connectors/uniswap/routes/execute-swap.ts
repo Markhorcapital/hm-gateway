@@ -1,4 +1,4 @@
-import { BigNumber, ethers } from 'ethers';
+import { BigNumber } from 'ethers';
 import { FastifyPluginAsync } from 'fastify';
 
 import { Ethereum } from '../../../chains/ethereum/ethereum';
@@ -240,16 +240,15 @@ export const executeSwapRoute: FastifyPluginAsync = async (
         logger.info(`Calldata length: ${methodParameters.calldata.length}`);
         logger.info(`Value: ${methodParameters.value}`);
 
-        // Prepare transaction with gas settings from quote
-        const txRequest = {
+        // Prepare transaction with EIP-1559 gas settings
+        const feeOverrides = await ethereum.getFeeOverrides();
+        const txRequest: any = {
           to: routerAddress,
           data: methodParameters.calldata,
           value: methodParameters.value,
-          gasLimit: quoteResult.gasLimit || 350000, // Use estimated gas from quote
-          gasPrice: ethers.utils.parseUnits(
-            quoteResult.gasPrice.toFixed(9), // Limit to 9 decimal places for gwei
-            'gwei',
-          ), // Convert the gas price from quote to wei
+          gasLimit:
+            quoteResult.gasLimit || Ethereum.DEFAULT_SWAP_GAS_LIMIT,
+          ...feeOverrides,
         };
 
         // Execute the swap by sending the transaction directly

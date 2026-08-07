@@ -46,6 +46,25 @@ export class Ethereum {
   public tokenListType: TokenListType;
   private _initialized: boolean = false;
 
+  // Realistic default for swap fee estimates (not the 3M ceiling used for hard gas caps)
+  public static readonly DEFAULT_SWAP_GAS_LIMIT = 300000;
+
+  // OP-stack GasPriceOracle predeploy (Base, Optimism, etc.)
+  private static readonly GAS_PRICE_ORACLE =
+    '0x420000000000000000000000000000000000000F';
+  private static readonly GAS_PRICE_ORACLE_ABI = [
+    'function getL1FeeUpperBound(uint256) view returns (uint256)',
+  ];
+  private static readonly OP_STACK_NETWORKS = new Set(['base', 'optimism']);
+  // Base Jovian minimum base fee; keep a tiny floor only (not the old 2.5 Gwei)
+  private static readonly BASE_MIN_FEE_GWEI = '0.005';
+  // Ethers often suggests ~1.5 Gwei tips (mainnet-style). Base only needs a tiny tip.
+  private static readonly BASE_PRIORITY_FEE_GWEI = '0.001';
+  // Modest buffer for fee volatility (not 2x)
+  private static readonly FEE_BUFFER_PCT = 120;
+  // Approximate serialized tx size for L1 fee upper-bound estimates
+  private static readonly DEFAULT_TX_BYTES = 500;
+
   // For backward compatibility
   public get chain(): string {
     return this.network;
@@ -98,47 +117,172 @@ export class Ethereum {
     return this._initialized;
   }
 
+  public isOpStackNetwork(): boolean {
+    return Ethereum.OP_STACK_NETWORKS.has(this.network);
+  }
+
+  /**
+   * Build Base EIP-1559 fees using the real L2 base fee and a tiny priority tip.
+   * Do not use ethers getFeeData().maxPriorityFeePerGas — it often returns ~1.5 Gwei
+   * (mainnet-style), which alone costs ~$0.30+ per swap on Base.
+   */
+  private async getBaseFeeOverrides(): Promise<{
+    maxFeePerGas: BigNumber;
+    maxPriorityFeePerGas: BigNumber;
+  }> {
+    const feeData = await this.provider.getFeeData();
+    const minBase = utils.parseUnits(Ethereum.BASE_MIN_FEE_GWEI, 'gwei');
+    const priorityFee = utils.parseUnits(
+      Ethereum.BASE_PRIORITY_FEE_GWEI,
+      'gwei',
+    );
+
+    // Prefer lastBaseFeePerGas; fall back to stripping a bloated tip from maxFeePerGas
+    let baseFee = feeData.lastBaseFeePerGas;
+    if (!baseFee || baseFee.isZero()) {
+      if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+        const inferred = feeData.maxFeePerGas.sub(feeData.maxPriorityFeePerGas);
+        baseFee = inferred.gt(0) ? inferred : minBase;
+      } else {
+        baseFee = minBase;
+      }
+    }
+    if (baseFee.lt(minBase)) {
+      baseFee = minBase;
+    }
+
+    // maxFee = (baseFee + priority) * 1.2 buffer for short Base fee spikes
+    const maxFeePerGas = baseFee
+      .add(priorityFee)
+      .mul(Ethereum.FEE_BUFFER_PCT)
+      .div(100);
+
+    logger.info(
+      `[GAS] Base EIP-1559: baseFee=${utils.formatUnits(baseFee, 'gwei')} GWEI, ` +
+        `priority=${utils.formatUnits(priorityFee, 'gwei')} GWEI (capped), ` +
+        `maxFee=${utils.formatUnits(maxFeePerGas, 'gwei')} GWEI ` +
+        `(ignored ethers tip ${feeData.maxPriorityFeePerGas ? utils.formatUnits(feeData.maxPriorityFeePerGas, 'gwei') : 'n/a'} GWEI)`,
+    );
+
+    return {
+      maxFeePerGas,
+      maxPriorityFeePerGas: priorityFee,
+    };
+  }
+
+  /**
+   * EIP-1559 fee overrides for sending transactions.
+   * Prefer maxFeePerGas / maxPriorityFeePerGas over legacy gasPrice.
+   */
+  public async getFeeOverrides(): Promise<{
+    maxFeePerGas?: BigNumber;
+    maxPriorityFeePerGas?: BigNumber;
+    gasPrice?: BigNumber;
+  }> {
+    try {
+      if (this.network === 'base') {
+        return await this.getBaseFeeOverrides();
+      }
+
+      const feeData = await this.provider.getFeeData();
+
+      if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+        logger.info(
+          `[GAS] EIP-1559 overrides for ${this.network}: maxFee=${utils.formatUnits(feeData.maxFeePerGas, 'gwei')} GWEI, priority=${utils.formatUnits(feeData.maxPriorityFeePerGas, 'gwei')} GWEI`,
+        );
+
+        return {
+          maxFeePerGas: feeData.maxFeePerGas,
+          maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+        };
+      }
+
+      const gasPrice = feeData.gasPrice ?? (await this.provider.getGasPrice());
+      logger.info(
+        `[GAS] Legacy gasPrice for ${this.network}: ${utils.formatUnits(gasPrice, 'gwei')} GWEI`,
+      );
+      return { gasPrice };
+    } catch (error: any) {
+      logger.error(`Failed to get fee overrides: ${error.message}`);
+      const fallback = utils.parseUnits(this.gasPrice.toString(), 'gwei');
+      return { gasPrice: fallback };
+    }
+  }
+
+  /**
+   * Estimates total transaction fee in ETH.
+   * On Base/Optimism this is L2 execution fee + L1 security fee (GasPriceOracle).
+   */
+  public async estimateTotalFees(
+    gasLimit?: number,
+    approxTxBytes: number = Ethereum.DEFAULT_TX_BYTES,
+  ): Promise<number> {
+    const gasLimitUsed = gasLimit || Ethereum.DEFAULT_SWAP_GAS_LIMIT;
+    const feeOverrides = await this.getFeeOverrides();
+    const l2GasPrice =
+      feeOverrides.maxFeePerGas ??
+      feeOverrides.gasPrice ??
+      (await this.provider.getGasPrice());
+
+    const l2Fee = l2GasPrice.mul(gasLimitUsed);
+    let l1Fee = BigNumber.from(0);
+
+    if (this.isOpStackNetwork()) {
+      try {
+        const oracle = new Contract(
+          Ethereum.GAS_PRICE_ORACLE,
+          Ethereum.GAS_PRICE_ORACLE_ABI,
+          this.provider,
+        );
+        l1Fee = await oracle.getL1FeeUpperBound(approxTxBytes);
+      } catch (error: any) {
+        logger.warn(
+          `Failed to fetch L1 fee from GasPriceOracle on ${this.network}: ${error.message}`,
+        );
+      }
+    }
+
+    const totalWei = l2Fee.add(l1Fee);
+    const totalEth = Number(utils.formatEther(totalWei));
+    logger.info(
+      `[GAS COST] ${this.network}: L2=${utils.formatEther(l2Fee)} ETH, L1=${utils.formatEther(l1Fee)} ETH, total=${totalEth} ETH (gasLimit=${gasLimitUsed})`,
+    );
+    return totalEth;
+  }
+
   /**
    * Estimates the current gas price
-   * Returns the gas price in GWEI
+   * Returns the gas price in GWEI (EIP-1559 maxFeePerGas when available)
    */
   public async estimateGasPrice(): Promise<number> {
     try {
-      const baseFee: BigNumber = await this.provider.getGasPrice();
-      let priorityFee: BigNumber = BigNumber.from('0');
-      let adjustedFee: BigNumber;
-
-      // Only get priority fee for mainnet
-      if (this.network === 'mainnet') {
-        priorityFee = BigNumber.from(
-          await this.provider.send('eth_maxPriorityFeePerGas', []),
+      if (this.network === 'base') {
+        const { maxFeePerGas } = await this.getBaseFeeOverrides();
+        const totalFeeGwei = Number(utils.formatUnits(maxFeePerGas, 'gwei'));
+        logger.info(
+          `[GAS PRICE] Base EIP-1559 estimate: ${totalFeeGwei} GWEI`,
         );
+        return totalFeeGwei;
       }
 
-      // Base network needs special handling for gas prices
-      // Base network sometimes reports very low gas prices that don't match reality
-      if (this.network === 'base') {
-        // For Base, use at least 2.5 Gwei as minimum or 2x the current price
-        const minBaseGasPrice = utils.parseUnits('2.5', 'gwei');
-        const baseMultiplier = baseFee.mul(200).div(100); // 2x current
+      // Prefer EIP-1559 fee data for other networks
+      const feeData = await this.provider.getFeeData();
+      let adjustedFee: BigNumber;
 
-        // Use the larger of the two values
-        adjustedFee = baseFee.lt(minBaseGasPrice)
-          ? minBaseGasPrice
-          : baseMultiplier;
-
-        logger.info(
-          `[GAS PRICE] Base network detected: Using higher gas price. Reported gas price was too low.`,
-        );
-        logger.info(
-          `[GAS PRICE] Raw gas price: ${baseFee.toNumber() * 1e-9} GWEI, Adjusted: ${adjustedFee.toNumber() * 1e-9} GWEI`,
-        );
+      if (feeData.maxFeePerGas) {
+        adjustedFee = feeData.maxFeePerGas;
       } else {
-        // For other networks, just add the priority fee
+        const baseFee: BigNumber = await this.provider.getGasPrice();
+        let priorityFee: BigNumber = BigNumber.from('0');
+        if (this.network === 'mainnet') {
+          priorityFee = BigNumber.from(
+            await this.provider.send('eth_maxPriorityFeePerGas', []),
+          );
+        }
         adjustedFee = baseFee.add(priorityFee);
       }
 
-      const totalFeeGwei = adjustedFee.toNumber() * 1e-9;
+      const totalFeeGwei = Number(utils.formatUnits(adjustedFee, 'gwei'));
       logger.info(
         `[GAS PRICE] Estimated: ${totalFeeGwei} GWEI for network ${this.network}`,
       );
@@ -467,17 +611,12 @@ export class Ethereum {
   ): Promise<Transaction> {
     logger.info(`Approving ${amount.toString()} tokens for spender ${spender}`);
 
+    const feeOverrides = await this.getFeeOverrides();
     const params: any = {
       gasLimit: this.gasLimitTransaction,
       nonce: await this.provider.getTransactionCount(wallet.address),
+      ...feeOverrides,
     };
-
-    // Always fetch gas price from the network
-    const currentGasPrice = await this.provider.getGasPrice();
-    params.gasPrice = currentGasPrice.toString();
-    logger.info(
-      `Using network gas price: ${utils.formatUnits(currentGasPrice, 'gwei')} GWEI`,
-    );
 
     return contract.approve(spender, amount, params);
   }
@@ -621,16 +760,14 @@ export class Ethereum {
       wallet,
     );
 
-    // Set transaction parameters
+    // Set transaction parameters with EIP-1559 fees when available
+    const feeOverrides = await this.getFeeOverrides();
     const params: any = {
-      gasLimit: this.gasLimitTransaction,
+      gasLimit: 100000, // WETH deposit is cheap; avoid 3M hard-cap inflation
       nonce: await this.provider.getTransactionCount(wallet.address),
       value: amountInWei, // Send native token with the transaction
+      ...feeOverrides,
     };
-
-    // Always fetch gas price from the network
-    const currentGasPrice = await this.provider.getGasPrice();
-    params.gasPrice = currentGasPrice.toString();
 
     // Create transaction to call deposit() function
     logger.info(`Wrapping ${utils.formatEther(amountInWei)} ETH to WETH`);
