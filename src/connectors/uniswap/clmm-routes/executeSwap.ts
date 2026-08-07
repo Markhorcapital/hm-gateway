@@ -252,8 +252,10 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
             sqrtPriceLimitX96: swapParams.sqrtPriceLimitX96,
           };
 
+          const feeOverrides = await ethereum.getFeeOverrides();
           tx = await routerContract.exactInputSingle(exactInputParams, {
-            gasLimit: 300000,
+            gasLimit: Ethereum.DEFAULT_SWAP_GAS_LIMIT,
+            ...feeOverrides,
           });
         } else {
           // exactOutputSingle - we know the exact output amount
@@ -274,8 +276,10 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
             sqrtPriceLimitX96: swapParams.sqrtPriceLimitX96,
           };
 
+          const feeOverrides = await ethereum.getFeeOverrides();
           tx = await routerContract.exactOutputSingle(exactOutputParams, {
-            gasLimit: 300000,
+            gasLimit: Ethereum.DEFAULT_SWAP_GAS_LIMIT,
+            ...feeOverrides,
           });
         }
 

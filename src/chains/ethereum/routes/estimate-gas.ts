@@ -18,14 +18,21 @@ export async function estimateGasEthereum(
   try {
     const ethereum = await Ethereum.getInstance(network);
 
-    // Get gas price in GWEI
+    // Get gas price in GWEI (EIP-1559 aware; Base no longer uses 2.5 Gwei floor)
     const gasPrice = await ethereum.estimateGasPrice();
 
-    // Use provided gas limit or default from config
-    const gasLimitUsed = gasLimit || ethereum.gasLimitTransaction;
+    // For fee estimates / arbitrage, use a realistic swap gas limit instead of the
+    // 3M hard cap. Callers can still override via gasLimit.
+    const gasLimitUsed =
+      gasLimit ||
+      (ethereum.isOpStackNetwork()
+        ? Ethereum.DEFAULT_SWAP_GAS_LIMIT
+        : ethereum.gasLimitTransaction);
 
-    // Calculate total gas cost in ETH
-    const gasCost = parseFloat(gasCostInEthString(gasPrice, gasLimitUsed));
+    // On Base/Optimism include L1 security fee via GasPriceOracle
+    const gasCost = ethereum.isOpStackNetwork()
+      ? await ethereum.estimateTotalFees(gasLimitUsed)
+      : parseFloat(gasCostInEthString(gasPrice, gasLimitUsed));
 
     return {
       gasPrice: gasPrice,

@@ -221,6 +221,11 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
 
         // Prepare transaction parameters
         const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from now
+        const feeOverrides = await ethereum.getFeeOverrides();
+        const txOverrides = {
+          gasLimit: Ethereum.DEFAULT_SWAP_GAS_LIMIT,
+          ...feeOverrides,
+        };
 
         let tx;
         if (side === 'SELL') {
@@ -237,9 +242,7 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
             quote.pathAddresses,
             walletAddress,
             deadline,
-            {
-              gasLimit: 300000,
-            },
+            txOverrides,
           );
         } else {
           // swapTokensForExactTokens - we know the exact output amount
@@ -255,9 +258,7 @@ export const executeSwapRoute: FastifyPluginAsync = async (fastify) => {
             quote.pathAddresses,
             walletAddress,
             deadline,
-            {
-              gasLimit: 300000,
-            },
+            txOverrides,
           );
         }
 
